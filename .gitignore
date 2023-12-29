@@ -1,0 +1,16 @@
+# System
+.DS_Store
+
+# Integrated development environment
+.idea
+.fleet
+.vscode
+
+# Package mining manager
+## Cargo
+target
+
+# Test data
+.maintain
+stdout.log
+stderr.log

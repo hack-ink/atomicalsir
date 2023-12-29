@@ -1,0 +1,36 @@
+[package]
+authors     = ["Xavier Lau <xavier@inv.cafe>"]
+build       = "build.rs"
+description = "Atomicals mining manager."
+edition     = "2021"
+homepage    = "https://hack.ink/atomicalsir"
+license     = "GPL-3.0"
+name        = "atomicalsir"
+readme      = "README.md"
+repository  = "https://github.com/hack-ink/atomicalsir"
+version     = "0.1.0"
+
+[profile.ci-dev]
+incremental = false
+inherits    = "dev"
+
+[profile.ci-release]
+inherits = "release"
+lto      = true
+
+[build-dependencies]
+# crates.io
+vergen = { version = "8.2", features = ["build", "cargo", "git", "gitcl"] }
+
+[dependencies]
+# crates.io
+anyhow             = { version = "1.0" }
+clap               = { version = "4.4", features = ["color", "derive"] }
+color-eyre         = { version = "0.6" }
+nix                = { version = "0.27", features = ["signal"] }
+reqwest            = { version = "0.11", features = ["json"] }
+serde              = { version = "1.0", features = ["derive"] }
+serde_json         = { version = "1.0" }
+tokio              = { version = "1.35", features = ["macros", "rt-multi-thread"] }
+tracing            = { version = "0.1" }
+tracing-subscriber = { version = "0.3" }
