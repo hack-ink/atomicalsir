@@ -60,7 +60,7 @@ cargo install atomicalsir
 ```
 
 #### Download the pre-built binary
-- You can download the pre-build binary from our [GitHub release](https://github.com/hack-ink/subalfred/releases)
+You can download the pre-build binary from our [GitHub release](https://github.com/hack-ink/subalfred/releases)
 
 #### Build from source code
 To build from the source code, use the following commands:
