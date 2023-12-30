@@ -247,7 +247,7 @@ impl Strategy {
 }
 impl Default for Strategy {
 	fn default() -> Self {
-		Self::AverageFirst
+		Self::WalletFirst
 	}
 }
 
@@ -297,14 +297,24 @@ fn execute(
 
 			let l = l?;
 
-			if l.contains("too-long-mempool-chain, too many descendants")
-				|| l.contains("insufficient fee, rejecting replacement")
-				|| l.contains("502 Bad Gateway")
-			{
-				tracing::info!("too-long-mempool-chain, too many descendants; killing process");
-				signal::kill(Pid::from_raw(id as i32), Signal::SIGKILL)?;
+			for i in [
+				"too-long-mempool-chain, too many descendants",
+				"insufficient fee, rejecting replacement",
+				"502 Bad Gateway",
+			] {
+				if l.contains(i) {
+					tracing::warn!("{l}; killing process");
 
-				break;
+					match i {
+						"502 Bad Gateway" =>
+							tracing::warn!("it's best to set up your own electrumx proxy"),
+						_ => (),
+					}
+
+					signal::kill(Pid::from_raw(id as i32), Signal::SIGKILL)?;
+
+					break;
+				}
 			}
 
 			writeln!(stdout_l, "{l}")?;
@@ -324,7 +334,7 @@ fn execute(
 			let l = l?;
 
 			if l.contains("worker stopped with exit code 1") {
-				tracing::info!("worker stopped with exit code 1; killing process");
+				tracing::warn!("worker stopped with exit code 1; killing process");
 				signal::kill(Pid::from_raw(id as i32), Signal::SIGKILL)?;
 
 				break;
