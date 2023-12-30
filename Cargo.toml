@@ -8,7 +8,7 @@ license     = "GPL-3.0"
 name        = "atomicalsir"
 readme      = "README.md"
 repository  = "https://github.com/hack-ink/atomicalsir"
-version     = "0.1.1"
+version     = "0.1.2"
 
 [profile.ci-dev]
 incremental = false
