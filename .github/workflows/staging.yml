@@ -55,7 +55,7 @@ jobs:
           md5sum * | tee ../MD5
           mv ../SHA256 .
           mv ../MD5 .
-          ls -al artifacts/
+          ls -al
       # - name: Publish
       #   uses: softprops/action-gh-release@v1
       #   with:
