@@ -190,29 +190,16 @@ impl Wallet {
 	}
 
 	async fn mine(&self, max_fee: u32, stash: Option<&str>, electrumx: Option<&str>) -> Result<()> {
-		// #[derive(Debug, Deserialize)]
-		// struct Satsbyte {
-		// 	priority: u32,
-		// }
-		// let fee = reqwest::get("https://api.blockchain.info/mempool/fees")
-		// 	.await?
-		// 	.json::<Satsbyte>()
-		// 	.await?
-		// 	.priority + 5;
-		#[derive(Debug, Deserialize)]
-		#[serde(rename_all = "camelCase")]
-		struct FastestFee {
-			fastest_fee: u32,
-		}
-		let fee = reqwest::get("https://mempool.space/api/v1/fees/recommended")
-			.await?
-			.json::<FastestFee>()
-			.await?
-			.fastest_fee + 5;
+		let fee = loop {
+			if let Ok(f) = query_fee().await {
+				break f;
+			}
+		};
 
 		tracing::info!("current priority fee: {fee} sat/vB");
 
-		let fee = fee.min(max_fee).to_string();
+		// Add 5 more to increase the speed.
+		let fee = (fee + 5).min(max_fee).to_string();
 
 		tracing::info!("selected: {fee} sat/vB");
 
@@ -352,6 +339,29 @@ fn execute(
 	stderr_t.join().unwrap()?;
 
 	Ok(())
+}
+
+async fn query_fee() -> Result<u32> {
+	// #[derive(Debug, Deserialize)]
+	// struct Satsbyte {
+	// 	priority: u32,
+	// }
+	// let fee = reqwest::get("https://api.blockchain.info/mempool/fees")
+	// 	.await?
+	// 	.json::<Satsbyte>()
+	// 	.await?
+	// 	.priority + 5;
+	#[derive(Debug, Deserialize)]
+	#[serde(rename_all = "camelCase")]
+	struct FastestFee {
+		fastest_fee: u32,
+	}
+
+	Ok(reqwest::get("https://mempool.space/api/v1/fees/recommended")
+		.await?
+		.json::<FastestFee>()
+		.await?
+		.fastest_fee)
 }
 
 fn kill(pid: u32) -> Result<()> {
