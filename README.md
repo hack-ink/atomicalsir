@@ -77,6 +77,10 @@ cargo build --release
 3. Run the following command: `atomicalsir --max-fee 150 <PATH to the atomicals-js folder>`
 
 ### Q&A
+- **Where can I find the mining log?**
+
+  You'll find the information in `stdout.log` and `stderr.log`, which are located in the current working directory.
+
 - **How to setup multi-wallet?**
 
   To set up a multi-wallet, place the `*.json` wallet files in the `atomicals-js/wallets` directory.
@@ -115,5 +119,6 @@ cargo build --release
   - The `wallet-first` strategy mines indefinitely, switching wallets until the current wallet has more than 12 unconfirmed transactions.
 
 ## Future plan
+- [ ] Update and rebuild `atomicals-js` automatically.
 - [ ] Implement wallet balance detection.
 - [ ] Implement a mining worker in pure Rust.
