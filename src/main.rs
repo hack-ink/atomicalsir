@@ -1,6 +1,9 @@
+#![feature(async_closure)]
+
 // std
 use std::{
 	fs::{self, File, OpenOptions},
+	future::Future,
 	io::{BufRead, BufReader, Write},
 	path::{Path, PathBuf},
 	process::{Command, Stdio},
@@ -50,13 +53,23 @@ async fn main() -> Result<()> {
 
 			match strategy {
 				Strategy::AverageFirst =>
-					for _ in w.unconfirmed_count().await?..=12 {
+					for _ in loop_query(
+						async || query_unconfirmed_tx_count(&w.address).await,
+						"unconfirmed transaction count",
+					)
+					.await..=12
+					{
 						w.mine(max_fee, stash.as_deref(), electrumx.as_deref()).await?;
 
 						sleep = false;
 					},
 				Strategy::WalletFirst => 'inner: loop {
-					if w.unconfirmed_count().await? <= 12 {
+					if loop_query(
+						async || { query_unconfirmed_tx_count(&w.address) }.await,
+						"unconfirmed transaction count",
+					)
+					.await <= 12
+					{
 						w.mine(max_fee, stash.as_deref(), electrumx.as_deref()).await?;
 
 						sleep = false;
@@ -167,38 +180,8 @@ impl Wallet {
 			.unwrap_or_default()
 	}
 
-	async fn unconfirmed_count(&self) -> Result<u32> {
-		#[derive(Debug, Deserialize)]
-		struct Unspent {
-			unconfirmed_n_tx: u32,
-		}
-
-		tracing::info!("fee: {}", self.address);
-
-		let unconfirmed_count = reqwest::get(format!(
-			"https://api.blockcypher.com/v1/btc/main/addrs/{}?unspentOnly=true",
-			self.address
-		))
-		.await?
-		.json::<Unspent>()
-		.await?
-		.unconfirmed_n_tx;
-
-		tracing::info!("unconfirmed transaction count: {unconfirmed_count}");
-
-		Ok(unconfirmed_count)
-	}
-
 	async fn mine(&self, max_fee: u32, stash: Option<&str>, electrumx: Option<&str>) -> Result<()> {
-		let fee = loop {
-			if let Ok(f) = query_fee().await {
-				break f;
-			}
-
-			tracing::warn!("failed to query fee; retrying in 3 seconds");
-
-			thread::sleep(Duration::from_secs(3));
-		};
+		let fee = loop_query(query_fee, "fee").await;
 
 		tracing::info!("current priority fee: {fee} sat/vB");
 
@@ -345,6 +328,22 @@ fn execute(
 	Ok(())
 }
 
+async fn loop_query<F, Fut, T>(function: F, target: &str) -> T
+where
+	F: Fn() -> Fut,
+	Fut: Future<Output = Result<T>>,
+{
+	loop {
+		if let Ok(f) = function().await {
+			return f;
+		}
+
+		tracing::warn!("failed to query {target}; retrying in 3 seconds");
+
+		thread::sleep(Duration::from_secs(3));
+	}
+}
+
 async fn query_fee() -> Result<u32> {
 	// #[derive(Debug, Deserialize)]
 	// struct Satsbyte {
@@ -366,6 +365,27 @@ async fn query_fee() -> Result<u32> {
 		.json::<FastestFee>()
 		.await?
 		.fastest_fee)
+}
+
+async fn query_unconfirmed_tx_count(address: &str) -> Result<u32> {
+	#[derive(Debug, Deserialize)]
+	struct Unspent {
+		unconfirmed_n_tx: u32,
+	}
+
+	tracing::info!("fee: {address}");
+
+	let unconfirmed_count = reqwest::get(format!(
+		"https://api.blockcypher.com/v1/btc/main/addrs/{address}?unspentOnly=true",
+	))
+	.await?
+	.json::<Unspent>()
+	.await?
+	.unconfirmed_n_tx;
+
+	tracing::info!("unconfirmed transaction count: {unconfirmed_count}");
+
+	Ok(unconfirmed_count)
 }
 
 fn kill(pid: u32) -> Result<()> {
