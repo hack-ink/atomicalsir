@@ -29,10 +29,16 @@ Options:
 
           [default: 150]
 
+      --no-unconfirmed-txs-check
+          Disable the unconfirmed transaction count check.
+
+          This will disable the multi-wallet feature.
+
       --stash <ALIAS>
           Specify the alias of the stash wallet.
 
-          The name should be able to find in `wallets/x.json`. And it will be passed to atomicals-js's `--initialowner` flag.
+          The name should be able to find in `wallets/x.json`.
+          And it will be passed to atomicals-js's `--initialowner` flag.
 
       --electrumx <URI>
           Specify the URI of the electrumx proxy electrumx.
@@ -42,7 +48,7 @@ Options:
       --strategy <STRATEGY>
           Mining strategy
 
-          [default: average-first]
+          [default: wallet-first]
           [possible values: average-first, wallet-first]
 
   -h, --help
@@ -72,7 +78,7 @@ cargo build --release
 ```
 
 #### Step-by-step setup
-1. Follow the installation steps for [`atomicals-js`](https://github.com/atomicals/atomicals-js).
+1. Follow the installation steps for [`atomicals-js`](https://github.com/atomicals/atomicals-js#install).
 2. Follow the installation steps for [`atomicalsir`](#installation).
 3. Run the following command: `atomicalsir --max-fee 150 <PATH to the atomicals-js folder>`
 
@@ -87,7 +93,7 @@ cargo build --release
 
 - **How to use one stash address in multi-wallet mining?**
 
-  Add a wallet with a <NAME> under the `imported` field of your `atomicals-js/wallets/x.json` file.
+  Add a wallet with a `<NAME>` under the `imported` field of your `atomicals-js/wallets/x.json` file.
 
   Then, run the command `atomicalsir --stash <NAME> ..`.
 

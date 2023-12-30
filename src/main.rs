@@ -30,7 +30,8 @@ async fn main() -> Result<()> {
 	color_eyre::install().unwrap();
 	tracing_subscriber::fmt::init();
 
-	let Cli { atomicals_js_dir, max_fee, stash, electrumx, strategy } = Cli::parse();
+	let Cli { atomicals_js_dir, max_fee, no_unconfirmed_txs_check, stash, electrumx, strategy } =
+		Cli::parse();
 	let wallets = Wallet::load_wallets(&atomicals_js_dir.join("wallets"));
 
 	tracing::info!("");
@@ -52,17 +53,23 @@ async fn main() -> Result<()> {
 			tracing::info!("");
 
 			match strategy {
-				Strategy::AverageFirst =>
-					for _ in loop_query(
-						async || query_unconfirmed_tx_count(&w.address).await,
-						"unconfirmed transaction count",
-					)
-					.await..=12
-					{
+				Strategy::AverageFirst => {
+					let i = if no_unconfirmed_txs_check {
+						0
+					} else {
+						loop_query(
+							async || query_unconfirmed_tx_count(&w.address).await,
+							"unconfirmed transaction count",
+						)
+						.await
+					};
+
+					for _ in i..=12 {
 						w.mine(max_fee, stash.as_deref(), electrumx.as_deref()).await?;
 
 						sleep = false;
-					},
+					}
+				},
 				Strategy::WalletFirst => 'inner: loop {
 					if loop_query(
 						async || { query_unconfirmed_tx_count(&w.address) }.await,
@@ -116,11 +123,16 @@ struct Cli {
 	/// priority fee is larger then this value.
 	#[arg(long, value_name = "VALUE", default_value_t = 150)]
 	max_fee: u32,
+	/// Disable the unconfirmed transaction count check.
+	///
+	/// This will disable the multi-wallet feature.
+	#[arg(long, default_value_t = false)]
+	no_unconfirmed_txs_check: bool,
 	/// Specify the alias of the stash wallet.
 	///
 	/// The name should be able to find in `wallets/x.json`.
 	/// And it will be passed to atomicals-js's `--initialowner` flag.
-	#[arg(long, value_name = "ALIAS")]
+	#[arg(verbatim_doc_comment, long, value_name = "ALIAS")]
 	stash: Option<String>,
 	/// Specify the URI of the electrumx proxy electrumx.
 	///
@@ -338,7 +350,7 @@ where
 			return f;
 		}
 
-		tracing::warn!("failed to query {target}; retrying in 3 seconds");
+		tracing::warn!("failed to query {target}; retrying in 60 seconds");
 
 		thread::sleep(Duration::from_secs(3));
 	}
