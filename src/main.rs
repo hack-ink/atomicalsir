@@ -20,10 +20,6 @@ use clap::{
 	},
 	Parser, ValueEnum,
 };
-use nix::{
-	sys::signal::{self, Signal},
-	unistd::Pid,
-};
 use serde::Deserialize;
 
 #[tokio::main]
@@ -284,7 +280,7 @@ fn execute(
 	}
 
 	let mut child = cmd.spawn()?;
-	let id = child.id();
+	let pid = child.id();
 	let should_terminate = Arc::new(AtomicBool::new(false));
 	let stdout_st = should_terminate.clone();
 	let stdout_r = BufReader::new(child.stdout.take().unwrap());
@@ -312,7 +308,7 @@ fn execute(
 						_ => (),
 					}
 
-					signal::kill(Pid::from_raw(id as i32), Signal::SIGKILL)?;
+					kill(pid)?;
 
 					break;
 				}
@@ -336,7 +332,8 @@ fn execute(
 
 			if l.contains("worker stopped with exit code 1") {
 				tracing::warn!("worker stopped with exit code 1; killing process");
-				signal::kill(Pid::from_raw(id as i32), Signal::SIGKILL)?;
+
+				kill(pid)?;
 
 				break;
 			}
@@ -352,6 +349,17 @@ fn execute(
 	should_terminate.store(true, Ordering::Relaxed);
 	stdout_t.join().unwrap()?;
 	stderr_t.join().unwrap()?;
+
+	Ok(())
+}
+
+fn kill(pid: u32) -> Result<()> {
+	let pid = pid.to_string();
+
+	#[cfg(any(target_os = "linux", target_os = "macos"))]
+	Command::new("kill").args(["-9", &pid]).output()?;
+	#[cfg(target_os = "windows")]
+	Command::new("taskkill").args(["/F", "/PID", &pid]).output()?;
 
 	Ok(())
 }
