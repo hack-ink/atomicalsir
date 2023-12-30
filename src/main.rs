@@ -350,9 +350,9 @@ where
 			return f;
 		}
 
-		tracing::warn!("failed to query {target}; retrying in 60 seconds");
+		tracing::warn!("failed to query {target}; retrying in 1 minute");
 
-		thread::sleep(Duration::from_secs(3));
+		thread::sleep(Duration::from_secs(60));
 	}
 }
 
