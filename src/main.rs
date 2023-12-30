@@ -33,6 +33,7 @@ async fn main() -> Result<()> {
 	let Cli { atomicals_js_dir, max_fee, no_unconfirmed_txs_check, stash, electrumx, strategy } =
 		Cli::parse();
 	let wallets = Wallet::load_wallets(&atomicals_js_dir.join("wallets"));
+	let strategy = if no_unconfirmed_txs_check { Strategy::AverageFirst } else { strategy };
 
 	tracing::info!("");
 	tracing::info!("");
