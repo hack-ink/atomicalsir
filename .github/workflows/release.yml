@@ -51,7 +51,7 @@ jobs:
       - name: Hash
         run: |
           mkdir -p artifacts
-          mv atomicalsir-* artifacts/
+          mv atomicalsir-*/* artifacts/
           cd artifacts
           sha256sum * | tee ../SHA256
           md5sum * | tee ../MD5
