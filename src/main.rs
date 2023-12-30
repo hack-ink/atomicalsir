@@ -293,17 +293,18 @@ fn execute(
 
 			let l = l?;
 
-			for i in [
+			for e in [
 				"too-long-mempool-chain, too many descendants",
 				"insufficient fee, rejecting replacement",
 				"502 Bad Gateway",
+				"Request failed with status code 500",
 			] {
-				if l.contains(i) {
-					tracing::warn!("{l}; killing process");
+				if l.contains(e) {
+					tracing::warn!("{e}; killing process");
 
 					#[allow(clippy::single_match)]
-					match i {
-						"502 Bad Gateway" =>
+					match e {
+						"502 Bad Gateway" | "Request failed with status code 500" =>
 							tracing::warn!("it's best to set up your own electrumx proxy"),
 						_ => (),
 					}
