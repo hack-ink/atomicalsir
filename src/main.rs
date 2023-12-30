@@ -305,6 +305,7 @@ fn execute(
 				if l.contains(i) {
 					tracing::warn!("{l}; killing process");
 
+					#[allow(clippy::single_match)]
 					match i {
 						"502 Bad Gateway" =>
 							tracing::warn!("it's best to set up your own electrumx proxy"),
