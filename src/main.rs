@@ -194,6 +194,10 @@ impl Wallet {
 			if let Ok(f) = query_fee().await {
 				break f;
 			}
+
+			tracing::warn!("failed to query fee; retrying in 3 seconds");
+
+			thread::sleep(Duration::from_secs(3));
 		};
 
 		tracing::info!("current priority fee: {fee} sat/vB");
