@@ -121,7 +121,7 @@ struct Cli {
 	/// Maximum acceptable fee.
 	///
 	/// This value will be passed to atomicals-js's `--satsbyte` flag if the current network's
-	/// priority fee is larger then this value.
+	/// priority fee is larger than this value.
 	#[arg(long, value_name = "VALUE", default_value_t = 150)]
 	max_fee: u32,
 	/// Disable the unconfirmed transaction count check.
