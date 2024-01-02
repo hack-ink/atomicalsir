@@ -194,7 +194,7 @@ pub struct Unspent {
 	pub atomicals: Vec<()>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Utxo {
 	pub txid: String,
 	// The same as `output_index` and `index`.

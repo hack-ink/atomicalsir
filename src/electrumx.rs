@@ -102,7 +102,7 @@ pub trait Api: Config + Http {
 				}
 			}
 
-			tracing::info!("waiting for utxo...");
+			tracing::info!("waiting for UTXO...");
 
 			time::sleep(Duration::from_secs(5)).await;
 		}

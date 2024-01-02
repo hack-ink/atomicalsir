@@ -26,7 +26,7 @@ vergen = { version = "8.2", features = ["build", "cargo", "git", "gitcl"] }
 # crates.io
 anyhow             = { version = "1.0" }
 array-bytes        = { version = "6.2" }
-bitcoin            = { version = "0.31" }
+bitcoin            = { version = "0.31", features = ["rand-std"] }
 ciborium           = { version = "0.2" }
 clap               = { version = "4.4", features = ["color", "derive"] }
 color-eyre         = { version = "0.6" }

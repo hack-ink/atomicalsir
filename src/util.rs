@@ -1,7 +1,6 @@
 // std
 use std::{
 	future::Future,
-	str::FromStr,
 	time::{Duration, SystemTime, UNIX_EPOCH},
 };
 // crates.io
@@ -11,6 +10,7 @@ use bitcoin::{
 		OP_0,
 	},
 	script::PushBytes,
+	secp256k1::Keypair,
 	Address, PrivateKey, Script, ScriptBuf, XOnlyPublicKey,
 };
 use serde::{Deserialize, Serialize};
@@ -90,8 +90,11 @@ fn cbor_should_work() {
 	);
 }
 
-pub fn x_only_public_key_of(private_key: &PrivateKey) -> Result<XOnlyPublicKey> {
-	Ok(XOnlyPublicKey::from_slice(&private_key.public_key(&Default::default()).to_bytes()[1..])?)
+pub fn keypair_from_wif<S>(wif: S) -> Result<Keypair>
+where
+	S: AsRef<str>,
+{
+	Ok(Keypair::from_secret_key(&Default::default(), &PrivateKey::from_wif(wif.as_ref())?.inner))
 }
 
 pub fn build_reval_script(
@@ -127,10 +130,8 @@ fn build_reval_script_should_work() {
 
 	// assert_eq!(
 	// 	build_reval_script(
-	// 		&x_only_public_key_of(
-	// 			&PrivateKey::from_wif("L4VgnxVoaPRaptd4yW19wwd7v9dzJvQn478AKwucbaQifPFBacrp").unwrap()
-	// 		).unwrap(),
-	// 		"dmt",
+	// 		&keypair_from_wif("L4VgnxVoaPRaptd4yW19wwd7v9dzJvQn478AKwucbaQifPFBacrp").unwrap().
+	// x_only_public_key().0, 		"dmt",
 	// 		&cbor(&PayloadWrapper {
 	// 			args: Payload {
 	// 				bitworkc: "aabbcc".into(),
@@ -146,9 +147,7 @@ fn build_reval_script_should_work() {
 		array_bytes::bytes2hex(
 			"",
 			build_reval_script(
-				&x_only_public_key_of(
-					&PrivateKey::from_wif("L4VgnxVoaPRaptd4yW19wwd7v9dzJvQn478AKwucbaQifPFBacrp").unwrap()
-				).unwrap(),
+				&keypair_from_wif("L4VgnxVoaPRaptd4yW19wwd7v9dzJvQn478AKwucbaQifPFBacrp").unwrap().x_only_public_key().0,
 				"dmt",
 				&cbor(&PayloadWrapper {
 					args: Payload {
@@ -178,7 +177,9 @@ pub fn address2scripthash(address: &Address) -> Result<String> {
 }
 #[test]
 fn address2scripthash_should_work() {
-	// crates.ui
+	// std
+	use std::str::FromStr;
+	// crates.io
 	use bitcoin::Network;
 
 	assert_eq!(
