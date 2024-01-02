@@ -25,7 +25,7 @@ Options:
       --max-fee <VALUE>
           Maximum acceptable fee.
 
-          This value will be passed to atomicals-js's `--satsbyte` flag if the current network's priority fee is larger then this value.
+          This value will be passed to atomicals-js's `--satsbyte` flag if the current network's priority fee is larger than this value.
 
           [default: 150]
 
