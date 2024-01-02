@@ -185,8 +185,7 @@ impl Miner {
 						solution_found.store(true, Ordering::Relaxed);
 						sequence.store(s, Ordering::Relaxed);
 
-						tracing::info!("{txid}");
-						tracing::info!("{tx:#?}");
+						tracing::info!("solution identified on txid {txid}");
 
 						return Ok(());
 					}
@@ -200,8 +199,8 @@ impl Miner {
 			t.join().unwrap()?;
 		}
 
-		tracing::info!("solution found with data {d:#?}");
-		tracing::info!("solution found with sequence {}", sequence.load(Ordering::Relaxed));
+		tracing::info!("solution identified with data {d:#?}");
+		tracing::info!("solution identified with sequence {}", sequence.load(Ordering::Relaxed));
 
 		Ok(())
 	}
