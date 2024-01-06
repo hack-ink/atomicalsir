@@ -32,8 +32,14 @@ use crate::{
 	wallet::Wallet as RawWallet,
 };
 
-pub async fn run(electrumx: &str, wallet_dir: &Path, ticker: &str, max_fee: u64) -> Result<()> {
-	let m = MinerBuilder { electrumx, wallet_dir, ticker, max_fee }.build()?;
+pub async fn run(
+	network: Network,
+	electrumx: &str,
+	wallet_dir: &Path,
+	ticker: &str,
+	max_fee: u64,
+) -> Result<()> {
+	let m = MinerBuilder { network, electrumx, wallet_dir, ticker, max_fee }.build()?;
 
 	loop {
 		for w in &m.wallets {
@@ -44,6 +50,7 @@ pub async fn run(electrumx: &str, wallet_dir: &Path, ticker: &str, max_fee: u64)
 
 #[derive(Debug)]
 struct Miner {
+	network: Network,
 	api: ElectrumX,
 	wallets: Vec<Wallet>,
 	ticker: String,
@@ -56,9 +63,9 @@ impl Miner {
 	const REVEAL_INPUT_BYTES_BASE: f64 = 66.;
 
 	async fn mine(&self, wallet: &Wallet) -> Result<()> {
-		let d = self.prepare_data(wallet).await?;
+		let data = self.prepare_data(wallet).await?;
 
-		tracing::debug!("{d:#?}");
+		tracing::debug!("{data:#?}");
 
 		let Data {
 			satsbyte,
@@ -69,7 +76,7 @@ impl Miner {
 			script_p2tr,
 			fees,
 			funding_utxo,
-		} = d.clone();
+		} = data.clone();
 		let input = vec![TxIn {
 			previous_output: OutPoint::new(
 				Txid::from_str(&funding_utxo.txid).unwrap(),
@@ -77,6 +84,7 @@ impl Miner {
 			),
 			..Default::default()
 		}];
+		let funding_spk = wallet.funding.address.script_pubkey();
 		let output = {
 			let spend = TxOut {
 				value: Amount::from_sat(fees.reveal_and_outputs),
@@ -88,10 +96,7 @@ impl Miner {
 				);
 
 				if r > 0 {
-					Some(TxOut {
-						value: Amount::from_sat(r),
-						script_pubkey: wallet.funding.address.script_pubkey(),
-					})
+					Some(TxOut { value: Amount::from_sat(r), script_pubkey: funding_spk.clone() })
 				} else {
 					None
 				}
@@ -106,7 +111,7 @@ impl Miner {
 		let hash_ty = TapSighashType::Default;
 		let prevouts = [TxOut {
 			value: Amount::from_sat(funding_utxo.value),
-			script_pubkey: wallet.funding.address.script_pubkey(),
+			script_pubkey: funding_spk.clone(),
 		}];
 		let secp = Secp256k1::new();
 		let mut ts = <Vec<JoinHandle<Result<()>>>>::new();
@@ -124,6 +129,8 @@ impl Miner {
 			let secp = secp.clone();
 			let solution_found = solution_found.clone();
 			let sequence = sequence.clone();
+			let funding_tkp = wallet.funding.pair.tap_tweak(&secp, None);
+			let funding_spk = funding_spk.clone();
 
 			ts.push(thread::spawn(move || {
 				for s in r {
@@ -151,16 +158,15 @@ impl Miner {
 								&Prevouts::All(&prevouts),
 								hash_ty,
 							)?;
-						let t = wallet.funding.pair.tap_tweak(&secp, None);
 						let m = Message::from_digest(h.to_byte_array());
 
-						Signature { sig: secp.sign_schnorr(&m, &t.to_inner()), hash_ty }
+						Signature { sig: secp.sign_schnorr(&m, &funding_tkp.to_inner()), hash_ty }
 					};
 
 					psbt.inputs[0] = Input {
 						witness_utxo: Some(TxOut {
 							value: Amount::from_sat(funding_utxo.value),
-							script_pubkey: wallet.funding.address.script_pubkey(),
+							script_pubkey: funding_spk.clone(),
 						}),
 						tap_internal_key: Some(wallet.funding.x_only_public_key),
 						tap_key_sig: Some(tap_key_sig),
@@ -199,7 +205,7 @@ impl Miner {
 			t.join().unwrap()?;
 		}
 
-		tracing::info!("solution identified with data {d:#?}");
+		tracing::info!("solution identified with {data:#?}");
 		tracing::info!("solution identified with sequence {}", sequence.load(Ordering::Relaxed));
 
 		Ok(())
@@ -248,8 +254,7 @@ impl Miner {
 			&Default::default(),
 			wallet.funding.x_only_public_key,
 			Some(hashscript.into()),
-			// Currently, this only supports mainnet.
-			Network::Bitcoin,
+			self.network,
 		);
 		let fees = Self::fees_of(satsbyte, reval_script.as_bytes().len(), &additional_outputs);
 		let funding_utxo = self
@@ -336,6 +341,7 @@ impl Miner {
 }
 #[derive(Debug)]
 struct MinerBuilder<'a> {
+	network: Network,
 	electrumx: &'a str,
 	wallet_dir: &'a Path,
 	ticker: &'a str,
@@ -343,13 +349,23 @@ struct MinerBuilder<'a> {
 }
 impl<'a> MinerBuilder<'a> {
 	fn build(self) -> Result<Miner> {
-		let api = ElectrumXBuilder::default().base_uri(self.electrumx).build().unwrap();
+		let api = ElectrumXBuilder::default()
+			.network(self.network)
+			.base_uri(self.electrumx)
+			.build()
+			.unwrap();
 		let wallets = RawWallet::load_wallets(self.wallet_dir)
 			.into_iter()
-			.map(Wallet::try_from)
+			.map(|rw| Wallet::from_raw_wallet(rw, self.network))
 			.collect::<Result<_>>()?;
 
-		Ok(Miner { api, wallets, ticker: self.ticker.into(), max_fee: self.max_fee })
+		Ok(Miner {
+			network: self.network,
+			api,
+			wallets,
+			ticker: self.ticker.into(),
+			max_fee: self.max_fee,
+		})
 	}
 }
 
@@ -358,31 +374,28 @@ struct Wallet {
 	stash: Key,
 	funding: Key,
 }
-impl TryFrom<RawWallet> for Wallet {
-	type Error = Error;
-
-	fn try_from(v: RawWallet) -> Result<Self> {
-		let s_p = util::keypair_from_wif(&v.stash.key.wif)?;
-		let f_p = util::keypair_from_wif(&v.funding.wif)?;
+impl Wallet {
+	fn from_raw_wallet(raw_wallet: RawWallet, network: Network) -> Result<Self> {
+		let s_p = util::keypair_from_wif(&raw_wallet.stash.key.wif)?;
+		let f_p = util::keypair_from_wif(&raw_wallet.funding.wif)?;
 
 		Ok(Self {
 			stash: Key {
 				pair: s_p,
 				x_only_public_key: s_p.x_only_public_key().0,
-				// Currently, this only supports mainnet.
-				address: Address::from_str(&v.stash.key.address)?
-					.require_network(Network::Bitcoin)?,
+				address: Address::from_str(&raw_wallet.stash.key.address)?
+					.require_network(network)?,
 			},
 			funding: Key {
 				pair: f_p,
 				x_only_public_key: f_p.x_only_public_key().0,
-				// Currently, this only supports mainnet.
-				address: Address::from_str(&v.funding.address)?
-					.require_network(Network::Bitcoin)?,
+				address: Address::from_str(&raw_wallet.funding.address)?
+					.require_network(network)?,
 			},
 		})
 	}
 }
+
 #[derive(Clone, Debug)]
 struct Key {
 	pair: Keypair,

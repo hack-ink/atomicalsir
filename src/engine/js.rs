@@ -14,6 +14,7 @@ use std::{
 use crate::{prelude::*, util, wallet::Wallet};
 
 pub async fn run(
+	network: &str,
 	electrumx: &str,
 	atomicals_js_dir: &Path,
 	ticker: &str,
@@ -26,13 +27,13 @@ pub async fn run(
 			tracing::info!("");
 			tracing::info!("");
 
-			w.mine(electrumx, ticker, max_fee).await?;
+			w.mine(network, electrumx, ticker, max_fee).await?;
 		}
 	}
 }
 
 impl Wallet {
-	async fn mine(&self, electrumx: &str, ticker: &str, max_fee: u64) -> Result<()> {
+	async fn mine(&self, network: &str, electrumx: &str, ticker: &str, max_fee: u64) -> Result<()> {
 		tracing::info!("stash: {}", self.stash.key.address);
 		tracing::info!("funding: {}", self.funding.address);
 
@@ -61,8 +62,9 @@ impl Wallet {
 		])
 		.stdout(Stdio::piped())
 		.stderr(Stdio::piped())
-		.env("WALLET_FILE", wf)
+		.env("NETWORK", network)
 		.env("ELECTRUMX_PROXY_BASE_URL", electrumx)
+		.env("WALLET_FILE", wf)
 		.current_dir(dir);
 
 		execute(cmd)?;

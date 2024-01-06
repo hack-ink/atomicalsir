@@ -1,12 +1,13 @@
 // std
 use std::path::PathBuf;
 // crates.io
+use bitcoin::Network;
 use clap::{
 	builder::{
 		styling::{AnsiColor, Effects},
 		Styles,
 	},
-	ArgGroup, Parser,
+	ArgGroup, Parser, ValueEnum,
 };
 // atomicalsir
 use crate::{engine::*, prelude::*};
@@ -36,17 +37,19 @@ pub struct Cli {
 	/// Need to provide a path to the atomicals-js repository's directory.
 	#[arg(long, value_name = "PATH", group = "engine")]
 	js_engine: Option<PathBuf>,
+	/// Network type.
+	#[arg(value_enum, long, value_name = "NETWORK", default_value_t = Network_::Mainnet)]
+	network: Network_,
 	/// Maximum acceptable fee.
 	///
 	/// This value will be passed to atomicals-js's `--satsbyte` flag if the current network's
 	/// priority fee is larger then this value.
 	#[arg(long, value_name = "VALUE", default_value_t = 150)]
 	max_fee: u64,
-	/// Specify the URI of the electrumx proxy electrumx.
+	/// Specify the URI of the electrumx.
 	///
-	/// Examples:
+	/// Example:
 	/// - https://ep.atomicals.xyz/proxy
-	/// - https://ep.atomicalmarket.com/proxy
 	#[arg(
 		verbatim_doc_comment,
 		long,
@@ -60,16 +63,38 @@ pub struct Cli {
 }
 impl Cli {
 	pub async fn run(self) -> Result<()> {
-		let Cli { rust_engine, js_engine, max_fee, electrumx, ticker } = self;
+		let Cli { rust_engine, js_engine, network, max_fee, electrumx, ticker } = self;
 		let ticker = ticker.to_lowercase();
 
 		if let Some(d) = js_engine {
-			js::run(&electrumx, &d, &ticker, max_fee).await?;
+			js::run(network.as_atomical_js_network(), &electrumx, &d, &ticker, max_fee).await?;
 		} else if let Some(d) = rust_engine {
-			rust::run(&electrumx, &d, &ticker, max_fee).await?;
+			rust::run(network.into(), &electrumx, &d, &ticker, max_fee).await?;
 		}
 
 		Ok(())
+	}
+}
+
+#[derive(Clone, Debug, ValueEnum)]
+enum Network_ {
+	Mainnet,
+	Testnet,
+}
+impl Network_ {
+	fn as_atomical_js_network(&self) -> &'static str {
+		match self {
+			Network_::Mainnet => "livenet",
+			Network_::Testnet => "testnet",
+		}
+	}
+}
+impl From<Network_> for Network {
+	fn from(v: Network_) -> Self {
+		match v {
+			Network_::Mainnet => Network::Bitcoin,
+			Network_::Testnet => Network::Testnet,
+		}
 	}
 }
 
