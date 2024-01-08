@@ -137,7 +137,8 @@ pub struct Args {
 	pub mint_amount: u64,
 	pub mint_bitworkc: String,
 	pub mint_height: u64,
-	pub nonce: u64,
+	// TODO: It's a `String` in mainnet but a `u64` in testnet.
+	// pub nonce: u64,
 	pub request_ticker: String,
 	pub time: u64,
 }
