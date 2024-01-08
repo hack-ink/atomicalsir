@@ -37,14 +37,20 @@ impl Wallet {
 		tracing::info!("stash: {}", self.stash.key.address);
 		tracing::info!("funding: {}", self.funding.address);
 
-		let fee = util::loop_fut(util::query_fee, "fee").await;
+		let fee = if network == "livenet" {
+			let f = util::loop_fut(util::query_fee, "fee").await;
 
-		tracing::info!("current priority fee: {fee} sat/vB");
+			tracing::info!("current priority fee: {f} sat/vB");
 
-		// Add 5 more to increase the speed.
-		let fee = (fee + 5).min(max_fee).to_string();
+			// Add 5 more to increase the speed.
+			let f = (f + 5).min(max_fee);
 
-		tracing::info!("selected: {fee} sat/vB");
+			tracing::info!("selected: {f} sat/vB");
+
+			f
+		} else {
+			1
+		};
 
 		let dir = self.path.parent().unwrap().parent().unwrap();
 		let wf = self.path.file_name().unwrap().to_str().unwrap();
@@ -55,7 +61,7 @@ impl Wallet {
 			"mint-dft",
 			ticker,
 			"--satsbyte",
-			fee.as_str(),
+			&fee.to_string(),
 			"--initialowner",
 			&self.stash.alias,
 			"--disablechalk",

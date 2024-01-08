@@ -107,6 +107,18 @@ pub trait Api: Config + Http {
 			time::sleep(Duration::from_secs(5)).await;
 		}
 	}
+
+	// TODO: Return type.
+	async fn broadcast<S>(&self, tx: S) -> Result<serde_json::Value>
+	where
+		S: AsRef<str>,
+	{
+		self.post::<_, _, serde_json::Value>(
+			self.uri_of("blockchain.transaction.broadcast"),
+			Params::new([tx.as_ref()]),
+		)
+		.await
+	}
 }
 impl<T> Api for T where T: Config + Http {}
 
@@ -132,18 +144,11 @@ impl Http for ElectrumX {
 		P: Serialize,
 		R: DeserializeOwned,
 	{
-		let resp = self.client.post(uri.as_ref()).json(&params).send().await?;
+		let resp = self.client.post(uri.as_ref()).json(&params).send().await?.text().await?;
 
-		#[cfg(test)]
-		{
-			let text = resp.text().await?;
+		tracing::debug!("{resp}");
 
-			println!("{text}");
-
-			Ok(serde_json::from_str(&text)?)
-		}
-		#[cfg(not(test))]
-		Ok(resp.json::<R>().await?)
+		Ok(serde_json::from_str(&resp)?)
 	}
 }
 

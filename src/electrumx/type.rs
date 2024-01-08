@@ -19,6 +19,7 @@ where
 	}
 }
 
+// TODO: Handle errors.
 #[derive(Debug, Deserialize)]
 pub struct Response<R> {
 	pub success: bool,
@@ -127,7 +128,7 @@ pub struct MintData {
 #[derive(Debug, Deserialize)]
 pub struct Fields {
 	pub args: Args,
-	pub meta: Meta,
+	pub meta: Option<Meta>,
 }
 #[derive(Debug, Deserialize)]
 pub struct Args {
@@ -136,15 +137,15 @@ pub struct Args {
 	pub mint_amount: u64,
 	pub mint_bitworkc: String,
 	pub mint_height: u64,
-	pub nonce: String,
+	pub nonce: u64,
 	pub request_ticker: String,
 	pub time: u64,
 }
 #[derive(Debug, Deserialize)]
 pub struct Meta {
-	pub description: String,
-	pub legal: Legal,
-	pub name: String,
+	pub description: Option<String>,
+	pub legal: Option<Legal>,
+	pub name: Option<String>,
 }
 #[derive(Debug, Deserialize)]
 pub struct Legal {

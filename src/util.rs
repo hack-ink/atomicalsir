@@ -13,6 +13,7 @@ use bitcoin::{
 	secp256k1::Keypair,
 	Address, PrivateKey, Script, ScriptBuf, XOnlyPublicKey,
 };
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::time;
@@ -58,8 +59,11 @@ pub fn kill_process(pid: u32) -> Result<()> {
 	Ok(())
 }
 
-pub fn now() -> u64 {
-	SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
+pub fn time_nonce() -> (u64, u64) {
+	(
+		SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+		rand::thread_rng().gen_range(1..10_000_000),
+	)
 }
 
 pub fn cbor<T>(v: &T) -> Result<Vec<u8>>
@@ -163,6 +167,16 @@ fn build_reval_script_should_work() {
 		"207e41d0ce6e41328e17ec13076603fc9d7a1d41fb1b497af09cdfbf9b648f7480ac00630461746f6d03646d743ea16461726773a468626974776f726b63666161626263636b6d696e745f7469636b657265717561726b656e6f6e63651a0098967f6474696d651a6591da5368"
 	);
 }
+
+// // TODO: bitworkr.
+// pub fn time_nonce_script() -> ScriptBuf {
+// 	let (time, nonce) = time_nonce();
+//
+// 	Script::builder()
+// 		.push_opcode(OP_RETURN)
+// 		.push_slice(<&PushBytes>::try_from(format!("{time}:{nonce}").as_bytes()).unwrap())
+// 		.into_script()
+// }
 
 pub fn address2scripthash(address: &Address) -> Result<String> {
 	let mut hasher = Sha256::new();
