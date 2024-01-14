@@ -3,11 +3,15 @@ use super::*;
 
 #[tokio::test]
 async fn get_by_ticker_should_work() {
+	tracing_subscriber::fmt::init();
+
 	ElectrumXBuilder::default().build().unwrap().get_by_ticker("quark").await.unwrap();
 }
 
 #[tokio::test]
 async fn get_ft_info_should_work() {
+	tracing_subscriber::fmt::init();
+
 	let e = ElectrumXBuilder::default().build().unwrap();
 
 	e.get_ft_info(e.get_by_ticker("quark").await.unwrap().atomical_id).await.unwrap();
@@ -15,6 +19,8 @@ async fn get_ft_info_should_work() {
 
 #[tokio::test]
 async fn get_unspent_address_should_work() {
+	tracing_subscriber::fmt::init();
+
 	ElectrumXBuilder::default()
 		.build()
 		.unwrap()

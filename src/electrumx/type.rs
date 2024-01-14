@@ -92,11 +92,10 @@ pub struct Ft {
 	pub subtype: String,
 	pub r#type: String,
 }
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct Bitwork {
 	pub bitworkc: String,
-	// TODO: Check the real type.
-	pub bitworkr: Option<()>,
+	pub bitworkr: Option<String>,
 }
 #[derive(Debug, Deserialize)]
 pub struct TickerStatus {
