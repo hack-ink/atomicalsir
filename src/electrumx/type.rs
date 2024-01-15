@@ -71,6 +71,8 @@ pub struct Ft {
 	pub mint_amount: u64,
 	#[serde(rename = "$mint_bitworkc")]
 	pub mint_bitworkc: String,
+	#[serde(rename = "$mint_bitworkr")]
+	pub mint_bitworkr: Option<String>,
 	#[serde(rename = "$mint_height")]
 	pub mint_height: u64,
 	#[serde(rename = "$request_ticker")]
@@ -92,7 +94,7 @@ pub struct Ft {
 	pub subtype: String,
 	pub r#type: String,
 }
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct Bitwork {
 	pub bitworkc: String,
 	pub bitworkr: Option<String>,

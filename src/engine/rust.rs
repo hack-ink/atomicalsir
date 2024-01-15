@@ -26,10 +26,7 @@ use bitcoin::{
 use serde::Serialize;
 // atomicalsir
 use crate::{
-	electrumx::{
-		r#type::{Bitwork, Utxo},
-		Api, ElectrumX, ElectrumXBuilder,
-	},
+	electrumx::{r#type::Utxo, Api, ElectrumX, ElectrumXBuilder},
 	prelude::*,
 	util,
 	wallet::Wallet as RawWallet,
@@ -77,7 +74,8 @@ impl Miner {
 		let Data {
 			secp,
 			satsbyte,
-			bitwork,
+			bitworkc,
+			bitworkr,
 			additional_outputs,
 			reveal_script,
 			reveal_spend_info,
@@ -130,7 +128,7 @@ impl Miner {
 			tracing::info!("spawning thread {i} for sequence range {r:?}");
 
 			let secp = secp.clone();
-			let bitworkc = bitwork.bitworkc.clone();
+			let bitworkc = bitworkc.clone();
 			let funding_kp = wallet.funding.pair.tap_tweak(&secp, None).to_inner();
 			let funding_xpk = wallet.funding.x_only_public_key;
 			let input = commit_input.clone();
@@ -229,7 +227,7 @@ impl Miner {
 		// TODO: Move common code to a single function.
 		let reveal_hty = TapSighashType::SinglePlusAnyoneCanPay;
 		let reveal_lh = reveal_script.tapscript_leaf_hash();
-		let reveal_tx = if let Some(bitworkr) = bitwork.bitworkr {
+		let reveal_tx = if let Some(bitworkr) = bitworkr {
 			let psbt = Psbt::from_unsigned_tx(Transaction {
 				version: Version::ONE,
 				lock_time: LockTime::ZERO,
@@ -448,7 +446,8 @@ impl Miner {
 		Ok(Data {
 			secp,
 			satsbyte,
-			bitwork: ft.bitwork,
+			bitworkc: ft.mint_bitworkc,
+			bitworkr: ft.mint_bitworkr,
 			additional_outputs,
 			reveal_script,
 			reveal_spend_info,
@@ -596,7 +595,8 @@ pub struct Payload {
 struct Data {
 	secp: Secp256k1<All>,
 	satsbyte: u64,
-	bitwork: Bitwork,
+	bitworkc: String,
+	bitworkr: Option<String>,
 	additional_outputs: Vec<TxOut>,
 	reveal_script: ScriptBuf,
 	reveal_spend_info: TaprootSpendInfo,
