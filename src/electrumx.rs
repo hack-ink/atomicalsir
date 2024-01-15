@@ -158,6 +158,14 @@ pub struct ElectrumXBuilder {
 	pub base_uri: String,
 }
 impl ElectrumXBuilder {
+	#[cfg(test)]
+	pub fn testnet() -> Self {
+		Self {
+			network: Network::Testnet,
+			base_uri: "https://eptestnet.atomicals.xyz/proxy".into(),
+		}
+	}
+
 	pub fn network(mut self, network: Network) -> Self {
 		self.network = network;
 
