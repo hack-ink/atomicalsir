@@ -6,7 +6,7 @@ use std::{
 // crates.io
 use bitcoin::{
 	opcodes::{
-		all::{OP_CHECKSIG, OP_ENDIF, OP_IF},
+		all::{OP_CHECKSIG, OP_ENDIF, OP_IF, OP_RETURN},
 		OP_0,
 	},
 	script::PushBytes,
@@ -168,15 +168,14 @@ fn build_reval_script_should_work() {
 	);
 }
 
-// // TODO: bitworkr.
-// pub fn time_nonce_script() -> ScriptBuf {
-// 	let (time, nonce) = time_nonce();
-//
-// 	Script::builder()
-// 		.push_opcode(OP_RETURN)
-// 		.push_slice(<&PushBytes>::try_from(format!("{time}:{nonce}").as_bytes()).unwrap())
-// 		.into_script()
-// }
+pub fn time_nonce_script() -> ScriptBuf {
+	let (time, nonce) = time_nonce();
+
+	Script::builder()
+		.push_opcode(OP_RETURN)
+		.push_slice(<&PushBytes>::try_from(format!("{time}:{nonce}").as_bytes()).unwrap())
+		.into_script()
+}
 
 pub fn address2scripthash(address: &Address) -> Result<String> {
 	let mut hasher = Sha256::new();
