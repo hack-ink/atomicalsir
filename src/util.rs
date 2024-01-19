@@ -85,7 +85,6 @@ fn cbor_should_work() {
 		cbor(&PayloadWrapper {
 			args: Payload {
 				bitworkc: "aabbcc".into(),
-				bitworkr: Some(String::from("")),
 				mint_ticker: "quark".into(),
 				nonce: 9999999,
 				time: 1704057427
@@ -140,7 +139,6 @@ fn build_reval_script_should_work() {
 	// 		&cbor(&PayloadWrapper {
 	// 			args: Payload {
 	// 				bitworkc: "aabbcc".into(),
-	// 				bitworkr: "".into(),
 	// 				mint_ticker: "quark".into(),
 	// 				nonce: 9999999,
 	// 				time: 1704057427
@@ -158,7 +156,6 @@ fn build_reval_script_should_work() {
 				&cbor(&PayloadWrapper {
 					args: Payload {
 						bitworkc: "aabbcc".into(),
-						bitworkr: Some("".into()),
 						mint_ticker: "quark".into(),
 						nonce: 9999999,
 						time: 1704057427
@@ -171,16 +168,6 @@ fn build_reval_script_should_work() {
 	);
 }
 
-// pub fn time_nonce_script() -> ScriptBuf {
-// 	let (time, nonce) = time_nonce();
-
-// 	Script::builder()
-// 		.push_opcode(OP_RETURN)
-// 		.push_slice(<&PushBytes>::try_from(format!("{time}:{nonce}").as_bytes()).unwrap())
-// 		.into_script()
-// }
-
-// MI
 pub fn solution_tm_nonce_script(time: u64, nonce: u32) -> ScriptBuf {
 	Script::builder()
 		.push_opcode(OP_RETURN)

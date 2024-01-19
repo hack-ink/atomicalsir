@@ -108,7 +108,6 @@ pub trait Api: Config + Http {
 				}
 			}
 
-			// tracing::info!("waiting for UTXO...");
 			tracing::info!(
 				"WAITING for UTXO... UNTIL {btc} BTC RECEIVED AT {addr}",
 				btc = satoshis as f64 / 100000000.,
