@@ -37,6 +37,11 @@ pub struct Cli {
 	/// Need to provide a path to the atomicals-js repository's directory.
 	#[arg(long, value_name = "PATH", group = "engine")]
 	js_engine: Option<PathBuf>,
+	/// Thread count.
+	///
+	/// This adjusts the number of threads utilized by the Rust engine miner.
+	#[arg(long, value_name = "NUM", default_value_t = num_cpus::get() as u16)]
+	thread: u16,
 	/// Network type.
 	#[arg(value_enum, long, value_name = "NETWORK", default_value_t = Network_::Mainnet)]
 	network: Network_,
@@ -63,13 +68,13 @@ pub struct Cli {
 }
 impl Cli {
 	pub async fn run(self) -> Result<()> {
-		let Cli { rust_engine, js_engine, network, max_fee, electrumx, ticker } = self;
+		let Cli { rust_engine, js_engine, thread, network, max_fee, electrumx, ticker } = self;
 		let ticker = ticker.to_lowercase();
 
 		if let Some(d) = js_engine {
 			js::run(network.as_atomical_js_network(), &electrumx, &d, &ticker, max_fee).await?;
 		} else if let Some(d) = rust_engine {
-			rust::run(network.into(), &electrumx, &d, &ticker, max_fee).await?;
+			rust::run(thread, network.into(), &electrumx, &d, &ticker, max_fee).await?;
 		}
 
 		Ok(())

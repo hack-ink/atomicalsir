@@ -198,7 +198,7 @@ pub struct ElectrumXBuilder {
 impl ElectrumXBuilder {
 	#[cfg(test)]
 	pub fn testnet() -> Self {
-		Self { network: Network::Testnet, base_uri: "https://eptestnet.atomicals.xyz/proxy".into() }
+		Self::default().network(Network::Testnet).base_uri("https://eptestnet.atomicals.xyz/proxy")
 	}
 
 	pub fn timeout(mut self, timeout: Duration) -> Self {

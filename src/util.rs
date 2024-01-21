@@ -30,11 +30,11 @@ pub async fn query_fee() -> Result<u64> {
 		.fastest_fee)
 }
 
+pub fn time() -> u64 {
+	SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
+}
 pub fn time_nonce() -> (u64, u64) {
-	(
-		SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
-		rand::thread_rng().gen_range(1..10_000_000),
-	)
+	(time(), rand::thread_rng().gen_range(1..10_000_000))
 }
 pub fn time_nonce_script(time: u64, nonce: u32) -> ScriptBuf {
 	Script::builder()
