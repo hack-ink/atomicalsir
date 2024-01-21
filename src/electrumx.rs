@@ -1,3 +1,6 @@
+// TODO: Make this a single library.
+// TODO: Use thiserror.
+
 #[cfg(test)] mod test;
 
 pub mod r#type;
@@ -139,6 +142,8 @@ impl<T> Api for T where T: Config + Http {}
 #[derive(Debug)]
 pub struct ElectrumX {
 	pub client: ReqwestClient,
+	pub retry_period: Duration,
+	pub max_retries: MaxRetries,
 	pub network: Network,
 	pub base_uri: String,
 }
@@ -158,23 +163,60 @@ impl Http for ElectrumX {
 		P: Serialize,
 		R: DeserializeOwned,
 	{
-		let resp = self.client.post(uri.as_ref()).json(&params).send().await?.text().await?;
+		let u = uri.as_ref();
 
-		tracing::debug!("{resp}");
+		for _ in self.max_retries.clone() {
+			match self.client.post(u).json(&params).send().await {
+				Ok(r) => match r.json().await {
+					Ok(r) => return Ok(r),
+					Err(e) => {
+						tracing::error!("failed to parse response into JSON due to {e}");
+					},
+				},
+				Err(e) => {
+					tracing::error!("the request to {u} failed due to {e}");
+				},
+			}
 
-		Ok(serde_json::from_str(&resp)?)
+			time::sleep(self.retry_period).await;
+		}
+
+		Err(anyhow::anyhow!("exceeded maximum retries"))
 	}
 }
 
 #[derive(Debug)]
 pub struct ElectrumXBuilder {
+	pub timeout: Duration,
+	pub retry_period: Duration,
+	pub max_retries: MaxRetries,
 	pub network: Network,
 	pub base_uri: String,
 }
+// TODO: Remove this cfg.
+#[allow(unused)]
 impl ElectrumXBuilder {
 	#[cfg(test)]
 	pub fn testnet() -> Self {
 		Self { network: Network::Testnet, base_uri: "https://eptestnet.atomicals.xyz/proxy".into() }
+	}
+
+	pub fn timeout(mut self, timeout: Duration) -> Self {
+		self.timeout = timeout;
+
+		self
+	}
+
+	pub fn retry_period(mut self, retry_period: Duration) -> Self {
+		self.retry_period = retry_period;
+
+		self
+	}
+
+	pub fn max_retries(mut self, max_retries: MaxRetries) -> Self {
+		self.max_retries = max_retries;
+
+		self
 	}
 
 	pub fn network(mut self, network: Network) -> Self {
@@ -194,7 +236,9 @@ impl ElectrumXBuilder {
 
 	pub fn build(self) -> Result<ElectrumX> {
 		Ok(ElectrumX {
-			client: ReqwestClientBuilder::new().timeout(Duration::from_secs(30)).build()?,
+			client: ReqwestClientBuilder::new().timeout(self.timeout).build()?,
+			retry_period: self.retry_period,
+			max_retries: self.max_retries,
 			network: self.network,
 			base_uri: self.base_uri,
 		})
@@ -202,6 +246,36 @@ impl ElectrumXBuilder {
 }
 impl Default for ElectrumXBuilder {
 	fn default() -> Self {
-		Self { network: Network::Bitcoin, base_uri: "https://ep.atomicals.xyz/proxy".into() }
+		Self {
+			timeout: Duration::from_secs(30),
+			retry_period: Duration::from_secs(5),
+			max_retries: MaxRetries::Finite(5),
+			network: Network::Bitcoin,
+			base_uri: "https://ep.atomicals.xyz/proxy".into(),
+		}
+	}
+}
+// TODO: Remove this cfg.
+#[allow(unused)]
+#[derive(Debug, Clone)]
+pub enum MaxRetries {
+	Infinite,
+	Finite(u8),
+}
+impl Iterator for MaxRetries {
+	type Item = ();
+
+	fn next(&mut self) -> Option<Self::Item> {
+		match self {
+			Self::Infinite => Some(()),
+			Self::Finite(n) =>
+				if *n > 0 {
+					*n -= 1;
+
+					Some(())
+				} else {
+					None
+				},
+		}
 	}
 }

@@ -7,8 +7,8 @@ use std::{
 		atomic::{AtomicBool, Ordering},
 		Arc, Mutex,
 	},
-	thread::{self, sleep, JoinHandle},
-	time::{Duration, SystemTime, UNIX_EPOCH},
+	thread::{self, JoinHandle},
+	time::{SystemTime, UNIX_EPOCH},
 };
 // crates.io
 use bitcoin::{
@@ -63,9 +63,7 @@ struct Miner {
 }
 impl Miner {
 	const BASE_BYTES: f64 = 10.5;
-	const BROADCAST_SLEEP_SECONDS: u32 = 15;
 	const INPUT_BYTES_BASE: f64 = 57.5;
-	const MAX_BROADCAST_NUM: u32 = 20;
 	const MAX_SEQUENCE: u32 = u32::MAX;
 	// OP_RETURN size
 	// 8-bytes value(roughly estimate), a one-byte script’s size
@@ -224,37 +222,16 @@ impl Miner {
 
 		// TODO: If no solution found.
 		let commit_tx = maybe_commit_tx.lock().unwrap().take().unwrap();
-
 		let commit_txid = commit_tx.txid();
-		// tracing::info!("commit txid {}", commit_txid);
-		tracing::info!("Broadcasting commit tx...");
-		let raw_tx = encode::serialize_hex(&commit_tx);
-		tracing::info!("raw tx: {}", &raw_tx);
+		let commit_tx_hex = encode::serialize_hex(&commit_tx);
 
-		let mut attempts = 0;
-		while attempts < Self::MAX_BROADCAST_NUM {
-			if let Err(_) = self.api.broadcast(raw_tx.clone()).await {
-				tracing::info!(
-					"Network error, will retry to broadcast commit transaction in {} seconds...",
-					Self::BROADCAST_SLEEP_SECONDS
-				);
-				sleep(Duration::from_secs(15));
-				attempts += 1;
-				continue;
-			}
-			break;
-		}
+		tracing::info!("broadcasting commit transaction {commit_txid}");
+		tracing::debug!("{commit_tx:#?}");
+		tracing::info!("{commit_tx_hex}");
 
-		if attempts < Self::MAX_BROADCAST_NUM {
-			tracing::info!("Successfully sent commit tx {commit_txid}");
-		} else {
-			tracing::info!("❌ Failed to send commit tx {commit_txid}");
-			return Ok(());
-		}
+		// TODO?: Handle result.
+		self.api.broadcast(commit_tx_hex).await?;
 
-		tracing::info!("\nCommit workers have completed their tasks for the commit transaction.\n");
-
-		let commit_txid = commit_tx.txid();
 		let commit_txid_ = self
 			.api
 			.wait_until_utxo(
@@ -291,6 +268,7 @@ impl Miner {
 
 			for i in 0..concurrency {
 				tracing::info!("spawning reveal worker thread {i} for bitworkr");
+
 				let secp = secp.clone();
 				let bitworkr = bitworkr.clone();
 				let funding_kp = wallet.funding.pair;
@@ -332,11 +310,9 @@ impl Miner {
 								(seq + 10000).min(seq_end)
 							);
 						}
-
 						if solution_found.load(Ordering::Relaxed) {
 							return Ok(());
 						}
-
 						if nonces_generated % 10000 == 0 {
 							unixtime =
 								SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
@@ -472,34 +448,15 @@ impl Miner {
 
 			psbt.extract_tx_unchecked_fee_rate()
 		};
-
 		let reveal_txid = reveal_tx.txid();
-		tracing::info!("reveal txid {}", reveal_txid);
-		tracing::info!("reveal tx {reveal_tx:#?}");
+		let reveal_tx_hex = encode::serialize_hex(&reveal_tx);
 
-		tracing::info!("Broadcasting reveal tx...");
-		let raw_tx = encode::serialize_hex(&reveal_tx);
-		tracing::info!("raw tx: {}", &raw_tx);
-		let mut attempts = 0;
-		while attempts < Self::MAX_BROADCAST_NUM {
-			if let Err(_) = self.api.broadcast(raw_tx.clone()).await {
-				tracing::info!(
-					"Network error, will retry to broadcast reveal transaction in {} seconds...",
-					Self::BROADCAST_SLEEP_SECONDS
-				);
-				sleep(Duration::from_secs(15));
-				attempts += 1;
-				continue;
-			}
-			break;
-		}
+		tracing::info!("broadcasting reveal transaction {reveal_txid}");
+		tracing::debug!("{reveal_tx:#?}");
+		tracing::info!("{reveal_tx_hex}");
 
-		if attempts < Self::MAX_BROADCAST_NUM {
-			tracing::info!("✅ Successfully sent reveal tx {reveal_txid}");
-			tracing::info!("✨Congratulations! Mission completed.✨");
-		} else {
-			tracing::info!("❌ Failed to send reveal tx {reveal_txid}");
-		}
+		// TODO?: Handle result.
+		self.api.broadcast(reveal_tx_hex).await?;
 
 		Ok(())
 	}
