@@ -168,9 +168,7 @@ fn build_reval_script_should_work() {
 	);
 }
 
-pub fn time_nonce_script() -> ScriptBuf {
-	let (time, nonce) = time_nonce();
-
+pub fn solution_tm_nonce_script(time: u64, nonce: u32) -> ScriptBuf {
 	Script::builder()
 		.push_opcode(OP_RETURN)
 		.push_slice(<&PushBytes>::try_from(format!("{time}:{nonce}").as_bytes()).unwrap())

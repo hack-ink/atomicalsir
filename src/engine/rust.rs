@@ -7,7 +7,8 @@ use std::{
 		atomic::{AtomicBool, Ordering},
 		Arc, Mutex,
 	},
-	thread::{self, JoinHandle},
+	thread::{self, sleep, JoinHandle},
+	time::{Duration, SystemTime, UNIX_EPOCH},
 };
 // crates.io
 use bitcoin::{
@@ -62,14 +63,27 @@ struct Miner {
 }
 impl Miner {
 	const BASE_BYTES: f64 = 10.5;
+	const BROADCAST_SLEEP_SECONDS: u32 = 15;
 	const INPUT_BYTES_BASE: f64 = 57.5;
+	const MAX_BROADCAST_NUM: u32 = 20;
+	const MAX_SEQUENCE: u32 = u32::MAX;
+	// OP_RETURN size
+	// 8-bytes value(roughly estimate), a one-byte script’s size
+	// actual value size depends precisely on final nonce
+	const OP_RETURN_BYTES: f64 = 21. + 8. + 1.;
 	const OUTPUT_BYTES_BASE: f64 = 43.;
 	const REVEAL_INPUT_BYTES_BASE: f64 = 66.;
+	const SEQ_RANGE_BUCKET: u32 = 100_000_000;
 
 	async fn mine(&self, wallet: &Wallet) -> Result<()> {
+		let concurrency: u32 = num_cpus::get() as u32;
+		let seq_range_per_revealer: u32 = Self::SEQ_RANGE_BUCKET / concurrency;
+
 		let d = self.prepare_data(wallet).await?;
 
 		tracing::info!("attempt to find a solution based on {d:#?}");
+		tracing::info!("\nStarting commit stage mining now...\n");
+		tracing::info!("Concurrency set to: {concurrency}");
 
 		let Data {
 			secp,
@@ -125,7 +139,7 @@ impl Miner {
 		let maybe_commit_tx = Arc::new(Mutex::new(None));
 
 		Self::sequence_ranges().into_iter().enumerate().for_each(|(i, r)| {
-			tracing::info!("spawning thread {i} for sequence range {r:?}");
+			tracing::info!("spawning commit worker thread {i} for sequence range {r:?}");
 
 			let secp = secp.clone();
 			let bitworkc = bitworkc.clone();
@@ -187,8 +201,8 @@ impl Miner {
 					let txid = tx.txid();
 
 					if txid.to_string().trim_start_matches("0x").starts_with(&bitworkc) {
-						tracing::info!("solution found");
-						tracing::info!("sequence {s}");
+						tracing::info!("solution found for commit step");
+						tracing::info!("commit sequence {s}");
 						tracing::info!("commit txid {txid}");
 						tracing::info!("commit tx {tx:#?}");
 
@@ -203,6 +217,7 @@ impl Miner {
 			}));
 		});
 
+		tracing::info!("\nStay calm and grab a drink! Commit workers have started mining...\n");
 		for t in ts {
 			t.join().unwrap()?;
 		}
@@ -210,7 +225,34 @@ impl Miner {
 		// TODO: If no solution found.
 		let commit_tx = maybe_commit_tx.lock().unwrap().take().unwrap();
 
-		self.api.broadcast(encode::serialize_hex(&commit_tx)).await?;
+		let commit_txid = commit_tx.txid();
+		// tracing::info!("commit txid {}", commit_txid);
+		tracing::info!("Broadcasting commit tx...");
+		let raw_tx = encode::serialize_hex(&commit_tx);
+		tracing::info!("raw tx: {}", &raw_tx);
+
+		let mut attempts = 0;
+		while attempts < Self::MAX_BROADCAST_NUM {
+			if let Err(_) = self.api.broadcast(raw_tx.clone()).await {
+				tracing::info!(
+					"Network error, will retry to broadcast commit transaction in {} seconds...",
+					Self::BROADCAST_SLEEP_SECONDS
+				);
+				sleep(Duration::from_secs(15));
+				attempts += 1;
+				continue;
+			}
+			break;
+		}
+
+		if attempts < Self::MAX_BROADCAST_NUM {
+			tracing::info!("Successfully sent commit tx {commit_txid}");
+		} else {
+			tracing::info!("❌ Failed to send commit tx {commit_txid}");
+			return Ok(());
+		}
+
+		tracing::info!("\nCommit workers have completed their tasks for the commit transaction.\n");
 
 		let commit_txid = commit_tx.txid();
 		let commit_txid_ = self
@@ -228,6 +270,9 @@ impl Miner {
 		let reveal_hty = TapSighashType::SinglePlusAnyoneCanPay;
 		let reveal_lh = reveal_script.tapscript_leaf_hash();
 		let reveal_tx = if let Some(bitworkr) = bitworkr {
+			// exists bitworkr
+			tracing::info!("\nStarting reveal stage mining now...\n");
+			tracing::info!("Concurrency set to: {concurrency}");
 			let psbt = Psbt::from_unsigned_tx(Transaction {
 				version: Version::ONE,
 				lock_time: LockTime::ZERO,
@@ -241,10 +286,11 @@ impl Miner {
 			let mut ts = <Vec<JoinHandle<Result<()>>>>::new();
 			let solution_found = Arc::new(AtomicBool::new(false));
 			let must_tx = Arc::new(Mutex::new(None));
+			let solution_time = Arc::new(Mutex::<u64>::new(0));
+			let solution_nonce = Arc::new(Mutex::<u32>::new(0));
 
-			for i in 0..num_cpus::get() {
-				tracing::info!("spawning thread {i} for bitworkr worker");
-
+			for i in 0..concurrency {
+				tracing::info!("spawning reveal worker thread {i} for bitworkr");
 				let secp = secp.clone();
 				let bitworkr = bitworkr.clone();
 				let funding_kp = wallet.funding.pair;
@@ -254,18 +300,53 @@ impl Miner {
 				let psbt = psbt.clone();
 				let solution_found = solution_found.clone();
 				let must_tx = must_tx.clone();
+				let solution_time = solution_time.clone();
+				let solution_nonce = solution_nonce.clone();
 
 				ts.push(thread::spawn(move || {
+					let mut seq_start = i * seq_range_per_revealer;
+					let mut seq = seq_start;
+					let mut seq_end = seq_start + seq_range_per_revealer - 1;
+					if i == (concurrency - 1) {
+						seq_end = Self::SEQ_RANGE_BUCKET - 1;
+					}
+
+					let mut unixtime =
+						SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+					let mut nonces_generated: u32 = 0;
+
 					loop {
+						if seq > seq_end {
+							if seq_end <= Self::MAX_SEQUENCE - Self::SEQ_RANGE_BUCKET {
+								seq_start += Self::SEQ_RANGE_BUCKET;
+								seq_end += Self::SEQ_RANGE_BUCKET;
+								seq = seq_start;
+							} else {
+								// reveal worker thread stop mining w/o soluton found
+								tracing::info!("reveal worker thread {i} traversed its range w/o solution found.");
+							}
+						}
+						if seq % 10000 == 0 {
+							tracing::trace!(
+								"started reveal mining for sequence: {seq} - {}",
+								(seq + 10000).min(seq_end)
+							);
+						}
+
 						if solution_found.load(Ordering::Relaxed) {
 							return Ok(());
+						}
+
+						if nonces_generated % 10000 == 0 {
+							unixtime =
+								SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 						}
 
 						let mut psbt = psbt.clone();
 
 						psbt.unsigned_tx.output.push(TxOut {
 							value: Amount::ZERO,
-							script_pubkey: util::time_nonce_script(),
+							script_pubkey: util::solution_tm_nonce_script(unixtime, seq),
 						});
 						psbt.outputs.push(Default::default());
 
@@ -314,14 +395,28 @@ impl Miner {
 						let txid = tx.txid();
 
 						if txid.to_string().trim_start_matches("0x").starts_with(&bitworkr) {
+							tracing::info!("solution found for reveal step");
+							tracing::info!("reveal sequence {seq}");
+							tracing::info!("solution at time: {unixtime}, solution nonce: {seq}");
 							solution_found.store(true, Ordering::Relaxed);
 							*must_tx.lock().unwrap() = Some(tx);
+							*solution_time.lock().unwrap() = unixtime;
+							*solution_nonce.lock().unwrap() = seq;
+
+							tracing::info!("\nReveal workers have completed their tasks for the reveal transaction.\n");
 
 							return Ok(());
 						}
+
+						seq += 1;
+						nonces_generated += 1;
 					}
 				}));
 			}
+
+			tracing::info!(
+				"\nDon't despair, it still takes some time! Reveal workers have started mining...\n"
+			);
 			for t in ts {
 				t.join().unwrap()?;
 			}
@@ -330,6 +425,7 @@ impl Miner {
 
 			tx
 		} else {
+			// No bitworkr
 			let mut psbt = Psbt::from_unsigned_tx(Transaction {
 				version: Version::ONE,
 				lock_time: LockTime::ZERO,
@@ -377,10 +473,33 @@ impl Miner {
 			psbt.extract_tx_unchecked_fee_rate()
 		};
 
-		tracing::info!("reveal txid {}", reveal_tx.txid());
+		let reveal_txid = reveal_tx.txid();
+		tracing::info!("reveal txid {}", reveal_txid);
 		tracing::info!("reveal tx {reveal_tx:#?}");
 
-		self.api.broadcast(encode::serialize_hex(&reveal_tx)).await?;
+		tracing::info!("Broadcasting reveal tx...");
+		let raw_tx = encode::serialize_hex(&reveal_tx);
+		tracing::info!("raw tx: {}", &raw_tx);
+		let mut attempts = 0;
+		while attempts < Self::MAX_BROADCAST_NUM {
+			if let Err(_) = self.api.broadcast(raw_tx.clone()).await {
+				tracing::info!(
+					"Network error, will retry to broadcast reveal transaction in {} seconds...",
+					Self::BROADCAST_SLEEP_SECONDS
+				);
+				sleep(Duration::from_secs(15));
+				attempts += 1;
+				continue;
+			}
+			break;
+		}
+
+		if attempts < Self::MAX_BROADCAST_NUM {
+			tracing::info!("✅ Successfully sent reveal tx {reveal_txid}");
+			tracing::info!("✨Congratulations! Mission completed.✨");
+		} else {
+			tracing::info!("❌ Failed to send reveal tx {reveal_txid}");
+		}
 
 		Ok(())
 	}
@@ -409,7 +528,7 @@ impl Miner {
 
 		let secp = Secp256k1::new();
 		let satsbyte = if self.network == Network::Bitcoin {
-			util::query_fee().await?.min(self.max_fee) + 5
+			(util::query_fee().await? + 5).min(self.max_fee)
 		} else {
 			2
 		};
@@ -420,6 +539,7 @@ impl Miner {
 		let payload = PayloadWrapper {
 			args: {
 				let (time, nonce) = util::time_nonce();
+				tracing::info!("payload time: {time}, payload nonce: {nonce}");
 
 				Payload {
 					bitworkc: ft.mint_bitworkc.clone(),
@@ -437,7 +557,13 @@ impl Miner {
 			.add_leaf(0, reveal_script.clone())?
 			.finalize(&secp, wallet.funding.x_only_public_key)
 			.unwrap();
-		let fees = Self::fees_of(satsbyte, reveal_script.as_bytes().len(), &additional_outputs);
+		let perform_bitworkr = if ft.mint_bitworkr.is_some() { true } else { false };
+		let fees = Self::fees_of(
+			satsbyte,
+			reveal_script.as_bytes().len(),
+			&additional_outputs,
+			perform_bitworkr,
+		);
 		let funding_utxo = self
 			.api
 			.wait_until_utxo(wallet.funding.address.to_string(), fees.commit_and_reveal_and_outputs)
@@ -456,12 +582,18 @@ impl Miner {
 		})
 	}
 
-	fn fees_of(satsbyte: u64, reveal_script_len: usize, additional_outputs: &[TxOut]) -> Fees {
+	fn fees_of(
+		satsbyte: u64,
+		reveal_script_len: usize,
+		additional_outputs: &[TxOut],
+		perform_bitworkr: bool,
+	) -> Fees {
 		let satsbyte = satsbyte as f64;
 		let commit = {
 			(satsbyte * (Self::BASE_BYTES + Self::INPUT_BYTES_BASE + Self::OUTPUT_BYTES_BASE))
 				.ceil() as u64
 		};
+		let op_return_size_bytes = if perform_bitworkr { Self::OP_RETURN_BYTES } else { 0. };
 		let reveal = {
 			let compact_input_bytes = if reveal_script_len <= 252 {
 				1.
@@ -478,6 +610,7 @@ impl Miner {
 						+ Self::REVEAL_INPUT_BYTES_BASE
 						+ (compact_input_bytes + reveal_script_len as f64) / 4.
 						// + utxos.len() as f64 * Self::INPUT_BYTES_BASE
+                        + op_return_size_bytes
 						+ additional_outputs.len() as f64 * Self::OUTPUT_BYTES_BASE))
 				.ceil() as u64
 		};
@@ -503,7 +636,8 @@ impl Miner {
 	}
 
 	fn sequence_ranges() -> Vec<Range<u32>> {
-		let step = (Sequence::MAX.0 as f64 / num_cpus::get() as f64).ceil() as u32;
+		let concurrency: u32 = num_cpus::get() as u32;
+		let step = (Sequence::MAX.0 as f64 / concurrency as f64).ceil() as u32;
 		let mut ranges = Vec::new();
 		let mut start = 0;
 

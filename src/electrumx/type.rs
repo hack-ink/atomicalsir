@@ -134,9 +134,11 @@ pub struct Fields {
 #[derive(Debug, Deserialize)]
 pub struct Args {
 	pub bitworkc: String,
+	pub bitworkr: Option<String>,
 	pub max_mints: u64,
 	pub mint_amount: u64,
 	pub mint_bitworkc: String,
+	pub mint_bitworkr: Option<String>,
 	pub mint_height: u64,
 	// TODO: It's a `String` in mainnet but a `u64` in testnet.
 	// pub nonce: u64,
@@ -159,6 +161,8 @@ pub struct MintInfo {
 	pub bitwork: Bitwork,
 	#[serde(rename = "$mint_bitworkc")]
 	pub mint_bitworkc: String,
+	#[serde(rename = "$mint_bitworkr")]
+	pub mint_bitworkr: Option<String>,
 	#[serde(rename = "$request_ticker")]
 	pub request_ticker: String,
 	pub args: Args,
