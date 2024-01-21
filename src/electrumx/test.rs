@@ -1,30 +1,40 @@
+// std
+use std::future::Future;
+// crates.io
+use tokio::runtime::Runtime;
 // atomicalsir
 use super::*;
 
-#[tokio::test]
-async fn get_by_ticker_should_work() {
+fn test<F, Fut>(f: F)
+where
+	F: FnOnce(ElectrumX) -> Fut,
+	Fut: Future<Output = ()>,
+{
 	let _ = tracing_subscriber::fmt::try_init();
-
-	ElectrumXBuilder::testnet().build().unwrap().get_by_ticker("quark").await.unwrap();
-}
-
-#[tokio::test]
-async fn get_ft_info_should_work() {
-	let _ = tracing_subscriber::fmt::try_init();
-
 	let e = ElectrumXBuilder::testnet().build().unwrap();
 
-	e.get_ft_info(e.get_by_ticker("quark").await.unwrap().atomical_id).await.unwrap();
+	Runtime::new().unwrap().block_on(f(e));
 }
 
-#[tokio::test]
-async fn get_unspent_address_should_work() {
-	let _ = tracing_subscriber::fmt::try_init();
+#[test]
+fn get_by_ticker_should_work() {
+	test(|e| async move {
+		e.get_by_ticker("quark").await.unwrap();
+	});
+}
 
-	ElectrumXBuilder::testnet()
-		.build()
-		.unwrap()
-		.get_unspent_address("tb1pemen3j4wvlryktkqsew8ext7wnsgqhmuzl7267rm3xk0th3gh04qr9wcec")
-		.await
-		.unwrap();
+#[test]
+fn get_ft_info_should_work() {
+	test(|e| async move {
+		e.get_ft_info(e.get_by_ticker("quark").await.unwrap().atomical_id).await.unwrap();
+	});
+}
+
+#[test]
+fn get_unspent_address_should_work() {
+	test(|e| async move {
+		e.get_unspent_address("tb1pemen3j4wvlryktkqsew8ext7wnsgqhmuzl7267rm3xk0th3gh04qr9wcec")
+			.await
+			.unwrap();
+	});
 }
