@@ -346,7 +346,7 @@ impl Miner {
 
 						psbt.unsigned_tx.output.push(TxOut {
 							value: Amount::ZERO,
-							script_pubkey: util::solution_tm_nonce_script(unixtime, seq),
+							script_pubkey: util::time_nonce_script(unixtime, seq),
 						});
 						psbt.outputs.push(Default::default());
 
@@ -720,6 +720,8 @@ pub struct PayloadWrapper {
 #[derive(Debug, Serialize)]
 pub struct Payload {
 	pub bitworkc: String,
+	// TODO: This field is unnecessary in the current version.
+	// pub bitworkr: Option<String>,
 	pub mint_ticker: String,
 	pub nonce: u64,
 	pub time: u64,

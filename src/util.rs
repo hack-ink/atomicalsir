@@ -1,8 +1,5 @@
 // std
-use std::{
-	future::Future,
-	time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::time::{SystemTime, UNIX_EPOCH};
 // crates.io
 use bitcoin::{
 	opcodes::{
@@ -16,25 +13,8 @@ use bitcoin::{
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tokio::time;
 // atomicalsir
 use crate::prelude::*;
-
-pub async fn loop_fut<F, Fut, T>(function: F, target: &str) -> T
-where
-	F: Fn() -> Fut,
-	Fut: Future<Output = Result<T>>,
-{
-	loop {
-		if let Ok(f) = function().await {
-			return f;
-		}
-
-		tracing::error!("failed to query {target}; retrying in 1 minute");
-
-		time::sleep(Duration::from_secs(60)).await;
-	}
-}
 
 pub async fn query_fee() -> Result<u64> {
 	#[derive(Debug, Deserialize)]
@@ -50,20 +30,17 @@ pub async fn query_fee() -> Result<u64> {
 		.fastest_fee)
 }
 
-pub fn kill_process(pid: u32) -> Result<()> {
-	#[cfg(any(target_os = "linux", target_os = "macos"))]
-	std::process::Command::new("kill").args(["-9", &pid.to_string()]).output()?;
-	#[cfg(target_os = "windows")]
-	std::process::Command::new("taskkill").args(["/F", "/PID", &pid.to_string()]).output()?;
-
-	Ok(())
-}
-
 pub fn time_nonce() -> (u64, u64) {
 	(
 		SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
 		rand::thread_rng().gen_range(1..10_000_000),
 	)
+}
+pub fn time_nonce_script(time: u64, nonce: u32) -> ScriptBuf {
+	Script::builder()
+		.push_opcode(OP_RETURN)
+		.push_slice(<&PushBytes>::try_from(format!("{time}:{nonce}").as_bytes()).unwrap())
+		.into_script()
 }
 
 pub fn cbor<T>(v: &T) -> Result<Vec<u8>>
@@ -166,13 +143,6 @@ fn build_reval_script_should_work() {
 		),
 		"207e41d0ce6e41328e17ec13076603fc9d7a1d41fb1b497af09cdfbf9b648f7480ac00630461746f6d03646d743ea16461726773a468626974776f726b63666161626263636b6d696e745f7469636b657265717561726b656e6f6e63651a0098967f6474696d651a6591da5368"
 	);
-}
-
-pub fn solution_tm_nonce_script(time: u64, nonce: u32) -> ScriptBuf {
-	Script::builder()
-		.push_opcode(OP_RETURN)
-		.push_slice(<&PushBytes>::try_from(format!("{time}:{nonce}").as_bytes()).unwrap())
-		.into_script()
 }
 
 pub fn address2scripthash(address: &Address) -> Result<String> {

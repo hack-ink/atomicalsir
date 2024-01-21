@@ -3,6 +3,8 @@ use std::collections::HashMap;
 // crates.io
 use serde::{Deserialize, Serialize};
 
+// TODO: We can remove the unused parts as much as possible.
+
 #[derive(Debug, Serialize)]
 pub struct Params<P>
 where

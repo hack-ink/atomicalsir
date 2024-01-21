@@ -6,7 +6,7 @@ use r#type::*;
 // std
 use std::{str::FromStr, time::Duration};
 // crates.io
-use bitcoin::{Address, Network};
+use bitcoin::{Address, Amount, Network};
 use reqwest::{Client as ReqwestClient, ClientBuilder as ReqwestClientBuilder};
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::time;
@@ -95,23 +95,27 @@ pub trait Api: Config + Http {
 	where
 		S: AsRef<str>,
 	{
+		let addr = address.as_ref();
+		let sat = Amount::from_sat(satoshis);
+
 		loop {
-			for u in self.get_unspent_address(address.as_ref()).await? {
-				if u.atomicals.is_empty() && u.value >= satoshis {
-					tracing::info!(
-						"Detected Funding UTXO {txid}:{vout}) with value {value} for funding...",
-						txid = u.txid,
-						vout = u.vout,
-						value = u.value
-					);
-					return Ok(u);
-				}
+			if let Some(u) = self
+				.get_unspent_address(addr)
+				.await?
+				.into_iter()
+				.find(|u| u.atomicals.is_empty() && u.value >= satoshis)
+			{
+				tracing::info!(
+					"funding UTXO detected {}:{} with a value of {} for funding purposes",
+					u.txid,
+					u.vout,
+					u.value
+				);
+				return Ok(u);
 			}
 
 			tracing::info!(
-				"WAITING for UTXO... UNTIL {btc} BTC RECEIVED AT {addr}",
-				btc = satoshis as f64 / 100000000.,
-				addr = address.as_ref()
+				"awaiting UTXO confirmation until {sat} BTC is received at address {addr}"
 			);
 
 			time::sleep(Duration::from_secs(5)).await;
