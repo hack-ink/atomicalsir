@@ -7,8 +7,7 @@ use std::{
 		atomic::{AtomicBool, Ordering},
 		Arc, Mutex,
 	},
-	thread::{self, sleep, JoinHandle},
-	time::{Duration, SystemTime, UNIX_EPOCH},
+	thread::{self, JoinHandle},
 };
 // crates.io
 use bitcoin::{
@@ -19,7 +18,7 @@ use bitcoin::{
 	psbt::Input,
 	secp256k1::{All, Keypair, Message, Secp256k1, XOnlyPublicKey},
 	sighash::{Prevouts, SighashCache},
-	taproot::{LeafVersion, Signature, TaprootBuilder, TaprootSpendInfo},
+	taproot::{LeafVersion, Signature, TapLeafHash, TaprootBuilder, TaprootSpendInfo},
 	transaction::Version,
 	Address, Amount, Network, OutPoint, Psbt, ScriptBuf, Sequence, TapSighashType, Transaction,
 	TxIn, TxOut, Witness,
@@ -27,20 +26,21 @@ use bitcoin::{
 use serde::Serialize;
 // atomicalsir
 use crate::{
-	electrumx::{r#type::Utxo, Api, ElectrumX, ElectrumXBuilder},
 	prelude::*,
-	util,
+	util::{self, FeeBound},
 	wallet::Wallet as RawWallet,
 };
+use atomicals_electrumx::{r#type::Utxo, Api, ElectrumX, ElectrumXBuilder};
 
 pub async fn run(
+	thread: u16,
 	network: Network,
+	fee_bound: &FeeBound,
 	electrumx: &str,
 	wallet_dir: &Path,
 	ticker: &str,
-	max_fee: u64,
 ) -> Result<()> {
-	let m = MinerBuilder { network, electrumx, wallet_dir, ticker, max_fee }.build()?;
+	let m = MinerBuilder { thread, network, fee_bound, electrumx, wallet_dir, ticker }.build()?;
 
 	#[allow(clippy::never_loop)]
 	loop {
@@ -55,35 +55,28 @@ pub async fn run(
 
 #[derive(Debug)]
 struct Miner {
+	thread: u16,
 	network: Network,
+	fee_bound: FeeBound,
 	api: ElectrumX,
 	wallets: Vec<Wallet>,
 	ticker: String,
-	max_fee: u64,
 }
 impl Miner {
 	const BASE_BYTES: f64 = 10.5;
-	const BROADCAST_SLEEP_SECONDS: u32 = 15;
 	const INPUT_BYTES_BASE: f64 = 57.5;
-	const MAX_BROADCAST_NUM: u32 = 20;
-	const MAX_SEQUENCE: u32 = u32::MAX;
-	// OP_RETURN size
-	// 8-bytes value(roughly estimate), a one-byte script’s size
-	// actual value size depends precisely on final nonce
+	const LOCK_TIME: LockTime = LockTime::ZERO;
+	// Estimated 8-byte value, with a script size of one byte.
+	// The actual size of the value is determined by the final nonce.
 	const OP_RETURN_BYTES: f64 = 21. + 8. + 1.;
 	const OUTPUT_BYTES_BASE: f64 = 43.;
 	const REVEAL_INPUT_BYTES_BASE: f64 = 66.;
-	const SEQ_RANGE_BUCKET: u32 = 100_000_000;
+	const VERSION: Version = Version::ONE;
 
 	async fn mine(&self, wallet: &Wallet) -> Result<()> {
-		let concurrency: u32 = num_cpus::get() as u32;
-		let seq_range_per_revealer: u32 = Self::SEQ_RANGE_BUCKET / concurrency;
-
 		let d = self.prepare_data(wallet).await?;
 
 		tracing::info!("attempt to find a solution based on {d:#?}");
-		tracing::info!("\nStarting commit stage mining now...\n");
-		tracing::info!("Concurrency set to: {concurrency}");
 
 		let Data {
 			secp,
@@ -133,128 +126,46 @@ impl Miner {
 			value: Amount::from_sat(funding_utxo.value),
 			script_pubkey: funding_spk.clone(),
 		}];
-		let commit_hty = TapSighashType::Default;
-		let mut ts = <Vec<JoinHandle<Result<()>>>>::new();
-		let solution_found = Arc::new(AtomicBool::new(false));
-		let maybe_commit_tx = Arc::new(Mutex::new(None));
-
-		Self::sequence_ranges().into_iter().enumerate().for_each(|(i, r)| {
-			tracing::info!("spawning commit worker thread {i} for sequence range {r:?}");
-
-			let secp = secp.clone();
-			let bitworkc = bitworkc.clone();
-			let funding_kp = wallet.funding.pair.tap_tweak(&secp, None).to_inner();
-			let funding_xpk = wallet.funding.x_only_public_key;
-			let input = commit_input.clone();
-			let output = commit_output.clone();
-			let prevouts = commit_prevouts.clone();
-			let solution_found = solution_found.clone();
-			let maybe_tx = maybe_commit_tx.clone();
-
-			ts.push(thread::spawn(move || {
-				for s in r {
-					if solution_found.load(Ordering::Relaxed) {
-						return Ok(());
-					}
-
+		let commit_tx = WorkerPool::new("commit", bitworkc, self.thread)
+			.activate(
+				(
+					secp.clone(),
+					wallet.funding.pair.tap_tweak(&secp, None).to_inner(),
+					wallet.funding.x_only_public_key,
+					commit_input.clone(),
+					commit_output.clone(),
+					commit_prevouts.clone(),
+				),
+				|(secp, signer, signer_xpk, input, output, prevouts), s| {
 					let mut psbt = Psbt::from_unsigned_tx(Transaction {
-						version: Version::ONE,
-						lock_time: LockTime::ZERO,
+						version: Self::VERSION,
+						lock_time: Self::LOCK_TIME,
 						input: {
-							let mut i = input.clone();
+							let mut i = input.to_owned();
 
 							i[0].sequence = Sequence(s);
 
 							i
 						},
-						output: output.clone(),
+						output: output.to_owned(),
 					})?;
-					let tap_key_sig = {
-						let h = SighashCache::new(&psbt.unsigned_tx)
-							.taproot_key_spend_signature_hash(
-								0,
-								&Prevouts::All(&prevouts),
-								commit_hty,
-							)?;
-						let m = Message::from_digest(h.to_byte_array());
 
-						Signature { sig: secp.sign_schnorr(&m, &funding_kp), hash_ty: commit_hty }
-					};
+					sign_commit_psbt(secp, signer, signer_xpk, &mut psbt, prevouts)?;
 
-					psbt.inputs[0] = Input {
-						witness_utxo: Some(prevouts[0].clone()),
-						final_script_witness: {
-							let mut w = Witness::new();
-
-							w.push(tap_key_sig.to_vec());
-
-							Some(w)
-						},
-						tap_key_sig: Some(tap_key_sig),
-						tap_internal_key: Some(funding_xpk),
-						..Default::default()
-					};
-
-					tracing::trace!("{psbt:#?}");
-
-					let tx = psbt.extract_tx_unchecked_fee_rate();
-					let txid = tx.txid();
-
-					if txid.to_string().trim_start_matches("0x").starts_with(&bitworkc) {
-						tracing::info!("solution found for commit step");
-						tracing::info!("commit sequence {s}");
-						tracing::info!("commit txid {txid}");
-						tracing::info!("commit tx {tx:#?}");
-
-						solution_found.store(true, Ordering::Relaxed);
-						*maybe_tx.lock().unwrap() = Some(tx);
-
-						return Ok(());
-					}
-				}
-
-				Ok(())
-			}));
-		});
-
-		tracing::info!("\nStay calm and grab a drink! Commit workers have started mining...\n");
-		for t in ts {
-			t.join().unwrap()?;
-		}
-
-		// TODO: If no solution found.
-		let commit_tx = maybe_commit_tx.lock().unwrap().take().unwrap();
-
+					Ok(psbt.extract_tx_unchecked_fee_rate())
+				},
+			)?
+			.result();
 		let commit_txid = commit_tx.txid();
-		// tracing::info!("commit txid {}", commit_txid);
-		tracing::info!("Broadcasting commit tx...");
-		let raw_tx = encode::serialize_hex(&commit_tx);
-		tracing::info!("raw tx: {}", &raw_tx);
+		let commit_tx_hex = encode::serialize_hex(&commit_tx);
 
-		let mut attempts = 0;
-		while attempts < Self::MAX_BROADCAST_NUM {
-			if let Err(_) = self.api.broadcast(raw_tx.clone()).await {
-				tracing::info!(
-					"Network error, will retry to broadcast commit transaction in {} seconds...",
-					Self::BROADCAST_SLEEP_SECONDS
-				);
-				sleep(Duration::from_secs(15));
-				attempts += 1;
-				continue;
-			}
-			break;
-		}
+		tracing::info!("broadcasting commit transaction {commit_txid}");
+		tracing::debug!("{commit_tx:#?}");
+		tracing::info!("{commit_tx_hex}");
 
-		if attempts < Self::MAX_BROADCAST_NUM {
-			tracing::info!("Successfully sent commit tx {commit_txid}");
-		} else {
-			tracing::info!("❌ Failed to send commit tx {commit_txid}");
-			return Ok(());
-		}
+		// TODO?: Handle result.
+		self.api.broadcast(commit_tx_hex).await?;
 
-		tracing::info!("\nCommit workers have completed their tasks for the commit transaction.\n");
-
-		let commit_txid = commit_tx.txid();
 		let commit_txid_ = self
 			.api
 			.wait_until_utxo(
@@ -266,239 +177,76 @@ impl Miner {
 
 		assert_eq!(commit_txid, commit_txid_.parse()?);
 
-		// TODO: Move common code to a single function.
-		let reveal_hty = TapSighashType::SinglePlusAnyoneCanPay;
+		let mut reveal_psbt = Psbt::from_unsigned_tx(Transaction {
+			version: Self::VERSION,
+			lock_time: Self::LOCK_TIME,
+			input: vec![TxIn {
+				previous_output: OutPoint::new(commit_txid, 0),
+				sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+				..Default::default()
+			}],
+			output: additional_outputs,
+		})?;
 		let reveal_lh = reveal_script.tapscript_leaf_hash();
 		let reveal_tx = if let Some(bitworkr) = bitworkr {
-			// exists bitworkr
-			tracing::info!("\nStarting reveal stage mining now...\n");
-			tracing::info!("Concurrency set to: {concurrency}");
-			let psbt = Psbt::from_unsigned_tx(Transaction {
-				version: Version::ONE,
-				lock_time: LockTime::ZERO,
-				input: vec![TxIn {
-					previous_output: OutPoint::new(commit_txid, 0),
-					sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
-					..Default::default()
-				}],
-				output: additional_outputs,
-			})?;
-			let mut ts = <Vec<JoinHandle<Result<()>>>>::new();
-			let solution_found = Arc::new(AtomicBool::new(false));
-			let must_tx = Arc::new(Mutex::new(None));
-			let solution_time = Arc::new(Mutex::<u64>::new(0));
-			let solution_nonce = Arc::new(Mutex::<u32>::new(0));
+			let time = util::time();
 
-			for i in 0..concurrency {
-				tracing::info!("spawning reveal worker thread {i} for bitworkr");
-				let secp = secp.clone();
-				let bitworkr = bitworkr.clone();
-				let funding_kp = wallet.funding.pair;
-				let reveal_script = reveal_script.clone();
-				let reveal_spend_info = reveal_spend_info.clone();
-				let commit_output = commit_output.clone();
-				let psbt = psbt.clone();
-				let solution_found = solution_found.clone();
-				let must_tx = must_tx.clone();
-				let solution_time = solution_time.clone();
-				let solution_nonce = solution_nonce.clone();
-
-				ts.push(thread::spawn(move || {
-					let mut seq_start = i * seq_range_per_revealer;
-					let mut seq = seq_start;
-					let mut seq_end = seq_start + seq_range_per_revealer - 1;
-					if i == (concurrency - 1) {
-						seq_end = Self::SEQ_RANGE_BUCKET - 1;
-					}
-
-					let mut unixtime =
-						SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-					let mut nonces_generated: u32 = 0;
-
-					loop {
-						if seq > seq_end {
-							if seq_end <= Self::MAX_SEQUENCE - Self::SEQ_RANGE_BUCKET {
-								seq_start += Self::SEQ_RANGE_BUCKET;
-								seq_end += Self::SEQ_RANGE_BUCKET;
-								seq = seq_start;
-							} else {
-								// reveal worker thread stop mining w/o soluton found
-								tracing::info!("reveal worker thread {i} traversed its range w/o solution found.");
-							}
-						}
-						if seq % 10000 == 0 {
-							tracing::trace!(
-								"started reveal mining for sequence: {seq} - {}",
-								(seq + 10000).min(seq_end)
-							);
-						}
-
-						if solution_found.load(Ordering::Relaxed) {
-							return Ok(());
-						}
-
-						if nonces_generated % 10000 == 0 {
-							unixtime =
-								SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-						}
-
-						let mut psbt = psbt.clone();
+			// TODO: Update time after attempting all sequences.
+			WorkerPool::new("reveal", bitworkr, self.thread)
+				.activate(
+					(
+						secp.clone(),
+						wallet.funding.pair,
+						reveal_script.clone(),
+						reveal_spend_info.clone(),
+						commit_output[0].clone(),
+						reveal_psbt.clone(),
+					),
+					move |(secp, signer, script, spend_info, output, psbt), s| {
+						let mut psbt = psbt.to_owned();
 
 						psbt.unsigned_tx.output.push(TxOut {
 							value: Amount::ZERO,
-							script_pubkey: util::solution_tm_nonce_script(unixtime, seq),
+							script_pubkey: util::time_nonce_script(time, s),
 						});
 						psbt.outputs.push(Default::default());
 
-						let tap_key_sig = {
-							let h = SighashCache::new(&psbt.unsigned_tx)
-								.taproot_script_spend_signature_hash(
-									0,
-									&Prevouts::One(0, commit_output[0].clone()),
-									reveal_lh,
-									reveal_hty,
-								)?;
-							let m = Message::from_digest(h.to_byte_array());
+						sign_reveal_psbt(
+							secp, signer, &mut psbt, output, &reveal_lh, spend_info, script,
+						)?;
 
-							Signature {
-								sig: secp.sign_schnorr(&m, &funding_kp),
-								hash_ty: reveal_hty,
-							}
-						};
-
-						psbt.inputs[0] = Input {
-							// TODO: Check.
-							witness_utxo: Some(commit_output[0].clone()),
-							tap_internal_key: Some(reveal_spend_info.internal_key()),
-							tap_merkle_root: reveal_spend_info.merkle_root(),
-							final_script_witness: {
-								let mut w = Witness::new();
-
-								w.push(tap_key_sig.to_vec());
-								w.push(reveal_script.as_bytes());
-								w.push(
-									reveal_spend_info
-										.control_block(&(
-											reveal_script.clone(),
-											LeafVersion::TapScript,
-										))
-										.unwrap()
-										.serialize(),
-								);
-
-								Some(w)
-							},
-							..Default::default()
-						};
-
-						let tx = psbt.extract_tx_unchecked_fee_rate();
-						let txid = tx.txid();
-
-						if txid.to_string().trim_start_matches("0x").starts_with(&bitworkr) {
-							tracing::info!("solution found for reveal step");
-							tracing::info!("reveal sequence {seq}");
-							tracing::info!("solution at time: {unixtime}, solution nonce: {seq}");
-							solution_found.store(true, Ordering::Relaxed);
-							*must_tx.lock().unwrap() = Some(tx);
-							*solution_time.lock().unwrap() = unixtime;
-							*solution_nonce.lock().unwrap() = seq;
-
-							tracing::info!("\nReveal workers have completed their tasks for the reveal transaction.\n");
-
-							return Ok(());
-						}
-
-						seq += 1;
-						nonces_generated += 1;
-					}
-				}));
-			}
-
-			tracing::info!(
-				"\nDon't despair, it still takes some time! Reveal workers have started mining...\n"
-			);
-			for t in ts {
-				t.join().unwrap()?;
-			}
-
-			let tx = must_tx.lock().unwrap().take().unwrap();
-
-			tx
+						Ok(psbt.extract_tx_unchecked_fee_rate())
+					},
+				)?
+				.result()
 		} else {
-			// No bitworkr
-			let mut psbt = Psbt::from_unsigned_tx(Transaction {
-				version: Version::ONE,
-				lock_time: LockTime::ZERO,
-				input: vec![TxIn {
-					previous_output: OutPoint::new(commit_txid, 0),
-					sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
-					..Default::default()
-				}],
-				output: additional_outputs,
-			})?;
-			let tap_key_sig = {
-				let h = SighashCache::new(&psbt.unsigned_tx).taproot_script_spend_signature_hash(
-					0,
-					&Prevouts::One(0, commit_output[0].clone()),
-					reveal_lh,
-					reveal_hty,
-				)?;
-				let m = Message::from_digest(h.to_byte_array());
+			sign_reveal_psbt(
+				&secp,
+				&wallet.funding.pair,
+				&mut reveal_psbt,
+				&commit_output[0],
+				&reveal_lh,
+				&reveal_spend_info,
+				&reveal_script,
+			)?;
 
-				Signature { sig: secp.sign_schnorr(&m, &wallet.funding.pair), hash_ty: reveal_hty }
-			};
-
-			psbt.inputs[0] = Input {
-				// TODO: Check.
-				witness_utxo: Some(commit_output[0].clone()),
-				tap_internal_key: Some(reveal_spend_info.internal_key()),
-				tap_merkle_root: reveal_spend_info.merkle_root(),
-				final_script_witness: {
-					let mut w = Witness::new();
-
-					w.push(tap_key_sig.to_vec());
-					w.push(reveal_script.as_bytes());
-					w.push(
-						reveal_spend_info
-							.control_block(&(reveal_script, LeafVersion::TapScript))
-							.unwrap()
-							.serialize(),
-					);
-
-					Some(w)
-				},
-				..Default::default()
-			};
-
-			psbt.extract_tx_unchecked_fee_rate()
+			// Remove this clone if not needed in the future.
+			reveal_psbt.clone().extract_tx_unchecked_fee_rate()
 		};
-
 		let reveal_txid = reveal_tx.txid();
-		tracing::info!("reveal txid {}", reveal_txid);
-		tracing::info!("reveal tx {reveal_tx:#?}");
+		let reveal_tx_hex = encode::serialize_hex(&reveal_tx);
 
-		tracing::info!("Broadcasting reveal tx...");
-		let raw_tx = encode::serialize_hex(&reveal_tx);
-		tracing::info!("raw tx: {}", &raw_tx);
-		let mut attempts = 0;
-		while attempts < Self::MAX_BROADCAST_NUM {
-			if let Err(_) = self.api.broadcast(raw_tx.clone()).await {
-				tracing::info!(
-					"Network error, will retry to broadcast reveal transaction in {} seconds...",
-					Self::BROADCAST_SLEEP_SECONDS
-				);
-				sleep(Duration::from_secs(15));
-				attempts += 1;
-				continue;
-			}
-			break;
-		}
+		tracing::info!("broadcasting reveal transaction {reveal_txid}");
+		tracing::debug!("{reveal_tx:#?}");
+		tracing::info!("{reveal_tx_hex}");
 
-		if attempts < Self::MAX_BROADCAST_NUM {
-			tracing::info!("✅ Successfully sent reveal tx {reveal_txid}");
-			tracing::info!("✨Congratulations! Mission completed.✨");
-		} else {
-			tracing::info!("❌ Failed to send reveal tx {reveal_txid}");
+		if let Err(e) = self.api.broadcast(&reveal_tx_hex).await {
+			tracing::error!("failed to broadcast reveal transaction due to {e}");
+
+			util::cache(
+				reveal_txid.to_string(),
+				format!("{reveal_tx_hex}\n{reveal_psbt:?}\n{reveal_tx:?}"),
+			)?;
 		}
 
 		Ok(())
@@ -528,7 +276,7 @@ impl Miner {
 
 		let secp = Secp256k1::new();
 		let satsbyte = if self.network == Network::Bitcoin {
-			(util::query_fee().await? + 5).min(self.max_fee)
+			self.fee_bound.apply(util::query_fee().await? + 5)
 		} else {
 			2
 		};
@@ -539,7 +287,6 @@ impl Miner {
 		let payload = PayloadWrapper {
 			args: {
 				let (time, nonce) = util::time_nonce();
-				tracing::info!("payload time: {time}, payload nonce: {nonce}");
 
 				Payload {
 					bitworkc: ft.mint_bitworkc.clone(),
@@ -557,12 +304,11 @@ impl Miner {
 			.add_leaf(0, reveal_script.clone())?
 			.finalize(&secp, wallet.funding.x_only_public_key)
 			.unwrap();
-		let perform_bitworkr = if ft.mint_bitworkr.is_some() { true } else { false };
 		let fees = Self::fees_of(
 			satsbyte,
 			reveal_script.as_bytes().len(),
 			&additional_outputs,
-			perform_bitworkr,
+			ft.mint_bitworkr.is_some(),
 		);
 		let funding_utxo = self
 			.api
@@ -586,14 +332,13 @@ impl Miner {
 		satsbyte: u64,
 		reveal_script_len: usize,
 		additional_outputs: &[TxOut],
-		perform_bitworkr: bool,
+		has_bitworkr: bool,
 	) -> Fees {
 		let satsbyte = satsbyte as f64;
 		let commit = {
 			(satsbyte * (Self::BASE_BYTES + Self::INPUT_BYTES_BASE + Self::OUTPUT_BYTES_BASE))
 				.ceil() as u64
 		};
-		let op_return_size_bytes = if perform_bitworkr { Self::OP_RETURN_BYTES } else { 0. };
 		let reveal = {
 			let compact_input_bytes = if reveal_script_len <= 252 {
 				1.
@@ -604,14 +349,15 @@ impl Miner {
 			} else {
 				9.
 			};
+			let op_return_bytes = if has_bitworkr { Self::OP_RETURN_BYTES } else { 0. };
 
 			(satsbyte
 				* (Self::BASE_BYTES
 						+ Self::REVEAL_INPUT_BYTES_BASE
 						+ (compact_input_bytes + reveal_script_len as f64) / 4.
 						// + utxos.len() as f64 * Self::INPUT_BYTES_BASE
-                        + op_return_size_bytes
-						+ additional_outputs.len() as f64 * Self::OUTPUT_BYTES_BASE))
+						+ additional_outputs.len() as f64 * Self::OUTPUT_BYTES_BASE
+						+ op_return_bytes))
 				.ceil() as u64
 		};
 		let outputs = additional_outputs.iter().map(|o| o.value.to_sat()).sum::<u64>();
@@ -634,31 +380,15 @@ impl Miner {
 			reveal_and_outputs: reveal + outputs,
 		}
 	}
-
-	fn sequence_ranges() -> Vec<Range<u32>> {
-		let concurrency: u32 = num_cpus::get() as u32;
-		let step = (Sequence::MAX.0 as f64 / concurrency as f64).ceil() as u32;
-		let mut ranges = Vec::new();
-		let mut start = 0;
-
-		while start < Sequence::MAX.0 {
-			let end = start.checked_add(step).unwrap_or(Sequence::MAX.0);
-
-			ranges.push(start..end);
-
-			start = end;
-		}
-
-		ranges
-	}
 }
 #[derive(Debug)]
 struct MinerBuilder<'a> {
+	thread: u16,
 	network: Network,
+	fee_bound: &'a FeeBound,
 	electrumx: &'a str,
 	wallet_dir: &'a Path,
 	ticker: &'a str,
-	max_fee: u64,
 }
 impl<'a> MinerBuilder<'a> {
 	fn build(self) -> Result<Miner> {
@@ -670,11 +400,12 @@ impl<'a> MinerBuilder<'a> {
 			.collect::<Result<_>>()?;
 
 		Ok(Miner {
+			thread: self.thread,
 			network: self.network,
+			fee_bound: self.fee_bound.to_owned(),
 			api,
 			wallets,
 			ticker: self.ticker.into(),
-			max_fee: self.max_fee,
 		})
 	}
 }
@@ -720,6 +451,8 @@ pub struct PayloadWrapper {
 #[derive(Debug, Serialize)]
 pub struct Payload {
 	pub bitworkc: String,
+	// TODO: This field is unnecessary in the current version.
+	// pub bitworkr: Option<String>,
 	pub mint_ticker: String,
 	pub nonce: u64,
 	pub time: u64,
@@ -744,4 +477,167 @@ struct Fees {
 	commit_and_reveal_and_outputs: u64,
 	// reveal: u64,
 	reveal_and_outputs: u64,
+}
+
+struct WorkerPool {
+	task: &'static str,
+	thread: u16,
+	difficulty: String,
+	result: Arc<Mutex<Option<Transaction>>>,
+}
+impl WorkerPool {
+	fn new(task: &'static str, difficulty: String, thread: u16) -> Self {
+		Self { task, difficulty, thread, result: Default::default() }
+	}
+
+	fn sequence_ranges(&self) -> Vec<Range<u32>> {
+		let step = (Sequence::MAX.0 as f32 / self.thread as f32).ceil() as u32;
+		let mut ranges = Vec::new();
+		let mut start = 0;
+
+		while start < Sequence::MAX.0 {
+			let end = start.checked_add(step).unwrap_or(Sequence::MAX.0);
+
+			ranges.push(start..end);
+
+			start = end;
+		}
+
+		ranges
+	}
+
+	fn activate<P, F>(&self, p: P, f: F) -> Result<&Self>
+	where
+		P: 'static + Clone + Send,
+		F: 'static + Clone + Send + Fn(&P, u32) -> Result<Transaction>,
+	{
+		let task = self.task;
+		let mut ts = <Vec<JoinHandle<Result<()>>>>::new();
+		let exit = Arc::new(AtomicBool::new(false));
+
+		self.sequence_ranges().into_iter().enumerate().for_each(|(i, r)| {
+			tracing::info!("spawning {task} worker thread {i} for sequence range {r:?}");
+
+			let p = p.clone();
+			let f = f.clone();
+			let difficulty = self.difficulty.clone();
+			let exit = exit.clone();
+			let result = self.result.clone();
+
+			ts.push(thread::spawn(move || {
+				for s in r {
+					if exit.load(Ordering::Relaxed) {
+						return Ok(());
+					}
+
+					let tx = f(&p, s)?;
+
+					if tx.txid().to_string().trim_start_matches("0x").starts_with(&difficulty) {
+						tracing::info!("solution found for {task}");
+
+						exit.store(true, Ordering::Relaxed);
+						*result.lock().unwrap() = Some(tx);
+
+						return Ok(());
+					}
+				}
+
+				Ok(())
+			}));
+		});
+
+		for t in ts {
+			t.join().unwrap()?;
+		}
+
+		Ok(self)
+	}
+
+	// TODO: If no solution found.
+	fn result(&self) -> Transaction {
+		self.result.lock().unwrap().take().unwrap()
+	}
+}
+
+fn sign_commit_psbt(
+	secp: &Secp256k1<All>,
+	signer: &Keypair,
+	signer_xpk: &XOnlyPublicKey,
+	psbt: &mut Psbt,
+	prevouts: &[TxOut],
+) -> Result<()> {
+	let commit_hty = TapSighashType::Default;
+	let tap_key_sig = {
+		let h = SighashCache::new(&psbt.unsigned_tx).taproot_key_spend_signature_hash(
+			0,
+			&Prevouts::All(prevouts),
+			commit_hty,
+		)?;
+		let m = Message::from_digest(h.to_byte_array());
+
+		Signature { sig: secp.sign_schnorr(&m, signer), hash_ty: commit_hty }
+	};
+
+	psbt.inputs[0] = Input {
+		witness_utxo: Some(prevouts[0].clone()),
+		final_script_witness: {
+			let mut w = Witness::new();
+
+			w.push(tap_key_sig.to_vec());
+
+			Some(w)
+		},
+		tap_key_sig: Some(tap_key_sig),
+		tap_internal_key: Some(*signer_xpk),
+		..Default::default()
+	};
+
+	Ok(())
+}
+
+fn sign_reveal_psbt(
+	secp: &Secp256k1<All>,
+	signer: &Keypair,
+	psbt: &mut Psbt,
+	commit_output: &TxOut,
+	reveal_left_hash: &TapLeafHash,
+	reveal_spend_info: &TaprootSpendInfo,
+	reveal_script: &ScriptBuf,
+) -> Result<()> {
+	let reveal_hty = TapSighashType::SinglePlusAnyoneCanPay;
+	let tap_key_sig = {
+		let h = SighashCache::new(&psbt.unsigned_tx).taproot_script_spend_signature_hash(
+			0,
+			&Prevouts::One(0, commit_output.to_owned()),
+			*reveal_left_hash,
+			reveal_hty,
+		)?;
+		let m = Message::from_digest(h.to_byte_array());
+
+		Signature { sig: secp.sign_schnorr(&m, signer), hash_ty: reveal_hty }
+	};
+
+	psbt.inputs[0] = Input {
+		// TODO: Check.
+		witness_utxo: Some(commit_output.to_owned()),
+		tap_internal_key: Some(reveal_spend_info.internal_key()),
+		tap_merkle_root: reveal_spend_info.merkle_root(),
+		final_script_witness: {
+			let mut w = Witness::new();
+
+			w.push(tap_key_sig.to_vec());
+			w.push(reveal_script.as_bytes());
+			w.push(
+				reveal_spend_info
+					.control_block(&(reveal_script.to_owned(), LeafVersion::TapScript))
+					.unwrap()
+					.serialize(),
+			);
+
+			Some(w)
+		},
+		..Default::default()
+	};
+
+	Ok(())
 }

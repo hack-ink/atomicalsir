@@ -1,0 +1,25 @@
+[package]
+authors     = ["Xavier Lau <xavier@inv.cafe>"]
+description = "Atomicals electrumx APIs."
+edition     = "2021"
+homepage    = "https://hack.ink/atomicalsir"
+license     = "GPL-3.0"
+name        = "atomicals-electrumx"
+readme      = "README.md"
+repository  = "https://github.com/hack-ink/atomicalsir"
+version     = "0.2.0"
+
+[dependencies]
+# crates.io
+array-bytes = { version = "6.2" }
+bitcoin     = { version = "0.31", features = ["rand-std"] }
+reqwest     = { version = "0.11", features = ["json", "rustls-tls"] }
+serde       = { version = "1.0", features = ["derive"] }
+serde_json  = { version = "1.0" }
+sha2        = { version = "0.10" }
+thiserror   = { version = "1.0" }
+tokio       = { version = "1.35", features = ["macros", "rt-multi-thread"] }
+tracing     = { version = "0.1" }
+
+[dev-dependencies]
+tracing-subscriber = { version = "0.3" }

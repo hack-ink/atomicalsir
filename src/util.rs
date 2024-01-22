@@ -1,7 +1,8 @@
 // std
 use std::{
-	future::Future,
-	time::{Duration, SystemTime, UNIX_EPOCH},
+	fs,
+	path::Path,
+	time::{SystemTime, UNIX_EPOCH},
 };
 // crates.io
 use bitcoin::{
@@ -11,28 +12,30 @@ use bitcoin::{
 	},
 	script::PushBytes,
 	secp256k1::Keypair,
-	Address, PrivateKey, Script, ScriptBuf, XOnlyPublicKey,
+	PrivateKey, Script, ScriptBuf, XOnlyPublicKey,
 };
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use tokio::time;
 // atomicalsir
 use crate::prelude::*;
 
-pub async fn loop_fut<F, Fut, T>(function: F, target: &str) -> T
-where
-	F: Fn() -> Fut,
-	Fut: Future<Output = Result<T>>,
-{
-	loop {
-		if let Ok(f) = function().await {
-			return f;
-		}
+#[derive(Clone, Debug)]
+pub struct FeeBound {
+	pub min: u64,
+	pub max: u64,
+}
+impl FeeBound {
+	pub fn from_str(s: &str) -> Result<Self> {
+		let mut s_ = s.split(',');
 
-		tracing::error!("failed to query {target}; retrying in 1 minute");
+		let min = s_.next().ok_or(anyhow::anyhow!("expected <MIN>,<MAX> found {s}"))?.parse()?;
+		let max = s_.next().ok_or(anyhow::anyhow!("expected <MIN>,<MAX> found {s}"))?.parse()?;
 
-		time::sleep(Duration::from_secs(60)).await;
+		Ok(Self { min, max })
+	}
+
+	pub fn apply(&self, value: u64) -> u64 {
+		value.min(self.max).max(self.min)
 	}
 }
 
@@ -50,20 +53,17 @@ pub async fn query_fee() -> Result<u64> {
 		.fastest_fee)
 }
 
-pub fn kill_process(pid: u32) -> Result<()> {
-	#[cfg(any(target_os = "linux", target_os = "macos"))]
-	std::process::Command::new("kill").args(["-9", &pid.to_string()]).output()?;
-	#[cfg(target_os = "windows")]
-	std::process::Command::new("taskkill").args(["/F", "/PID", &pid.to_string()]).output()?;
-
-	Ok(())
+pub fn time() -> u64 {
+	SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
 }
-
 pub fn time_nonce() -> (u64, u64) {
-	(
-		SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
-		rand::thread_rng().gen_range(1..10_000_000),
-	)
+	(time(), rand::thread_rng().gen_range(1..10_000_000))
+}
+pub fn time_nonce_script(time: u64, nonce: u32) -> ScriptBuf {
+	Script::builder()
+		.push_opcode(OP_RETURN)
+		.push_slice(<&PushBytes>::try_from(format!("{time}:{nonce}").as_bytes()).unwrap())
+		.into_script()
 }
 
 pub fn cbor<T>(v: &T) -> Result<Vec<u8>>
@@ -168,39 +168,16 @@ fn build_reval_script_should_work() {
 	);
 }
 
-pub fn solution_tm_nonce_script(time: u64, nonce: u32) -> ScriptBuf {
-	Script::builder()
-		.push_opcode(OP_RETURN)
-		.push_slice(<&PushBytes>::try_from(format!("{time}:{nonce}").as_bytes()).unwrap())
-		.into_script()
-}
+pub fn cache<S1, S2>(txid: S1, tx: S2) -> Result<()>
+where
+	S1: AsRef<str>,
+	S2: AsRef<[u8]>,
+{
+	if !Path::new("cache").is_dir() {
+		fs::create_dir("cache")?;
+	}
 
-pub fn address2scripthash(address: &Address) -> Result<String> {
-	let mut hasher = Sha256::new();
+	fs::write(format!("cache/{}", txid.as_ref()), tx)?;
 
-	hasher.update(address.script_pubkey());
-
-	let mut hash = hasher.finalize();
-
-	hash.reverse();
-
-	Ok(array_bytes::bytes2hex("", hash))
-}
-#[test]
-fn address2scripthash_should_work() {
-	// std
-	use std::str::FromStr;
-	// crates.io
-	use bitcoin::Network;
-
-	assert_eq!(
-		address2scripthash(
-			&Address::from_str("bc1pqkq0rg5yjrx6u08nhmc652s33g96jmdz4gjp9d46ew6ahun7xuvqaerzsp")
-				.unwrap()
-				.require_network(Network::Bitcoin)
-				.unwrap()
-		)
-		.unwrap(),
-		"2ae9d6353b5f9b05073e3a4def3b47ab05033d8340ffa6959917c21779f956cf"
-	)
+	Ok(())
 }

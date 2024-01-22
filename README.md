@@ -15,7 +15,7 @@
 ```
 Atomicals mining manager.
 
-Usage: atomicalsir [OPTIONS] --ticker <NAME> <--rust-engine <RUST_ENGINE>|--js-engine <PATH>>
+Usage: atomicalsir [OPTIONS] --fee-bound <MIN,MAX> --ticker <NAME> <--rust-engine <RUST_ENGINE>|--js-engine <PATH>>
 
 Options:
       --rust-engine <RUST_ENGINE>
@@ -28,18 +28,21 @@ Options:
 
           Need to provide a path to the atomicals-js repository's directory.
 
+      --thread <NUM>
+          Thread count.
+
+          This adjusts the number of threads utilized by the Rust engine miner.
+
+          [default: 16]
+
       --network <NETWORK>
           Network type
 
           [default: mainnet]
           [possible values: mainnet, testnet]
 
-      --max-fee <VALUE>
-          Maximum acceptable fee.
-
-          This value will be passed to atomicals-js's `--satsbyte` flag if the current network's priority fee is larger then this value.
-
-          [default: 150]
+      --fee-bound <MIN,MAX>
+          Set the fee rate range to sat/vB
 
       --electrumx <URI>
           Specify the URI of the electrumx.
@@ -61,11 +64,10 @@ Options:
 
 ### Warning
 The Rust mining engine is not fully tested; use at your own risk.
-Additionally, it does not support `bitworkr`.
 
 #### Example
 ```sh
-RUST_LOG=atomicalsir=debug cargo r -r -- --rust-engine .maintain/atomicals-js/wallets --network testnet --electrumx https://eptestnet.atomicals.xyz/proxy --ticker atomicalsir4
+RUST_LOG=atomicalsir=debug cargo r -r -- --rust-engine .maintain/atomicals-js/wallets --network testnet --fee-bound 50,150 --electrumx https://eptestnet.atomicals.xyz/proxy --ticker atomicalsir4
 ```
 
 #### [Bitcoin testnet result](https://mempool.space/testnet/tx/aabbcc683171c11c3513f88f0c601e2657982e07d4e9259c8cfa4d909eb397bc)
@@ -245,16 +247,20 @@ To build from the source code, use the following commands:
 ```sh
 git clone https://hack-ink/atomicalsir
 cd atomicalsir
-cargo build --release
+cargo b -r
 ```
 
-#### Step-by-step setup
+#### Step-by-step setup (js-engine)
 1. Follow the installation steps for [`atomicals-js`](https://github.com/atomicals/atomicals-js#install).
 2. Follow the installation steps for [`atomicalsir`](#installation).
-3. Run the following command: `atomicalsir --max-fee 150 <PATH to the atomicals-js folder>`
+3. Run the following command: `atomicalsir --js-engine <PATH to the atomicals-js folder> --fee-bound 50,150 --ticker quark`
+
+#### Step-by-step setup (rust-engine)
+1. Follow the installation steps for [`atomicalsir`](#installation).
+2. Run the following command: `atomicalsir --rust-engine <PATH to the atomicals-js's wallets folder> --fee-bound 50,150 --ticker quark`
 
 ### Q&A
-- **Where can I find the mining log?**
+- **Where can I find the js-engine mining log?**
 
   You'll find the information in `stdout.log` and `stderr.log`, which are located in the current working directory.
 
@@ -296,6 +302,7 @@ cargo build --release
   - The `wallet-first` strategy mines indefinitely, switching wallets until the current wallet has more than 12 unconfirmed transactions.
 
 ## Future plan
-- [ ] Update and rebuild `atomicals-js` automatically.
-- [ ] Implement wallet balance detection.
-- [x] Implement a mining worker in pure Rust.
+- [ ] Remove js-engine.
+- [x] Implement wallet balance detection.
+- [x] Implement mining worker in Rust.
+- [ ] Implement GPU mining worker.

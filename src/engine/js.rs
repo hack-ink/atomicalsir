@@ -1,6 +1,7 @@
 // std
 use std::{
 	fs::OpenOptions,
+	future::Future,
 	io::{BufRead, BufReader, Write},
 	path::Path,
 	process::{Command, Stdio},
@@ -9,16 +10,23 @@ use std::{
 		Arc,
 	},
 	thread,
+	time::Duration,
 };
+// crates.io
+use tokio::time;
 // atomicalsir
-use crate::{prelude::*, util, wallet::Wallet};
+use crate::{
+	prelude::*,
+	util::{self, FeeBound},
+	wallet::Wallet,
+};
 
 pub async fn run(
 	network: &str,
+	fee_bound: &FeeBound,
 	electrumx: &str,
 	atomicals_js_dir: &Path,
 	ticker: &str,
-	max_fee: u64,
 ) -> Result<()> {
 	let ws = Wallet::load_wallets(atomicals_js_dir.join("wallets"));
 
@@ -27,29 +35,35 @@ pub async fn run(
 			tracing::info!("");
 			tracing::info!("");
 
-			w.mine(network, electrumx, ticker, max_fee).await?;
+			w.mine(network, fee_bound, electrumx, ticker).await?;
 		}
 	}
 }
 
 impl Wallet {
-	async fn mine(&self, network: &str, electrumx: &str, ticker: &str, max_fee: u64) -> Result<()> {
+	async fn mine(
+		&self,
+		network: &str,
+		fee_bound: &FeeBound,
+		electrumx: &str,
+		ticker: &str,
+	) -> Result<()> {
 		tracing::info!("stash: {}", self.stash.key.address);
 		tracing::info!("funding: {}", self.funding.address);
 
 		let fee = if network == "livenet" {
-			let f = util::loop_fut(util::query_fee, "fee").await;
+			let f = loop_fut(util::query_fee, "fee").await;
 
 			tracing::info!("current priority fee: {f} sat/vB");
 
 			// Add 5 more to increase the speed.
-			let f = (f + 5).min(max_fee);
+			let f = fee_bound.apply(f + 5);
 
 			tracing::info!("selected: {f} sat/vB");
 
 			f
 		} else {
-			1
+			2
 		};
 
 		let dir = self.path.parent().unwrap().parent().unwrap();
@@ -110,7 +124,7 @@ fn execute(mut command: Command) -> Result<()> {
 						_ => (),
 					}
 
-					util::kill_process(pid)?;
+					kill_process(pid)?;
 
 					break;
 				}
@@ -135,7 +149,7 @@ fn execute(mut command: Command) -> Result<()> {
 			if l.contains("worker stopped with exit code 1") {
 				tracing::error!("worker stopped with exit code 1; killing process");
 
-				util::kill_process(pid)?;
+				kill_process(pid)?;
 
 				break;
 			}
@@ -151,6 +165,31 @@ fn execute(mut command: Command) -> Result<()> {
 	should_terminate.store(true, Ordering::Relaxed);
 	stdout_t.join().unwrap()?;
 	stderr_t.join().unwrap()?;
+
+	Ok(())
+}
+
+async fn loop_fut<F, Fut, T>(function: F, target: &str) -> T
+where
+	F: Fn() -> Fut,
+	Fut: Future<Output = Result<T>>,
+{
+	loop {
+		if let Ok(f) = function().await {
+			return f;
+		}
+
+		tracing::error!("failed to query {target}; retrying in 1 minute");
+
+		time::sleep(Duration::from_secs(60)).await;
+	}
+}
+
+fn kill_process(pid: u32) -> Result<()> {
+	#[cfg(any(target_os = "linux", target_os = "macos"))]
+	std::process::Command::new("kill").args(["-9", &pid.to_string()]).output()?;
+	#[cfg(target_os = "windows")]
+	std::process::Command::new("taskkill").args(["/F", "/PID", &pid.to_string()]).output()?;
 
 	Ok(())
 }

@@ -1,11 +1,10 @@
-#![deny(missing_docs, unused_crate_dependencies)]
-
 //! Atomicals mining manager.
+
+#![deny(missing_docs, unused_crate_dependencies)]
 
 mod cli;
 use cli::Cli;
 
-mod electrumx;
 mod engine;
 mod util;
 mod wallet;
