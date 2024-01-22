@@ -1,16 +1,25 @@
-#![deny(missing_docs, unused_crate_dependencies)]
-
 //! Atomicals electrumx APIs.
 
+#![deny(missing_docs, unused_crate_dependencies)]
+
 #[cfg(test)] mod test;
+
+pub mod error;
 
 pub mod r#type;
 use r#type::*;
 
 pub mod util;
 
-mod prelude {
-	pub use anyhow::Result;
+pub mod prelude {
+	//! atomicals-electrumx prelude.
+
+	pub use std::result::Result as StdResult;
+
+	pub use super::error::{self, Error};
+
+	/// atomicals-electrumx `Result` type.
+	pub type Result<T> = StdResult<T, Error>;
 }
 use prelude::*;
 
@@ -228,7 +237,7 @@ impl Http for ElectrumX {
 			time::sleep(self.retry_period).await;
 		}
 
-		Err(anyhow::anyhow!("exceeded maximum retries"))
+		Err(Error::ExceededMaximumRetries)
 	}
 }
 

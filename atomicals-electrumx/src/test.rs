@@ -3,7 +3,7 @@ use std::future::Future;
 // crates.io
 use tokio::runtime::Runtime;
 // atomicals-electrumx
-use super::*;
+use crate::*;
 
 fn test<F, Fut>(f: F)
 where

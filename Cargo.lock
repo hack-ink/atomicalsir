@@ -90,13 +90,13 @@ checksum = "6f840fb7195bcfc5e17ea40c26e5ce6d5b9ce5d584466e17703209657e459ae0"
 name = "atomicals-electrumx"
 version = "0.1.9"
 dependencies = [
- "anyhow",
  "array-bytes",
  "bitcoin",
  "reqwest",
  "serde",
  "serde_json",
  "sha2",
+ "thiserror",
  "tokio",
  "tracing",
  "tracing-subscriber",
