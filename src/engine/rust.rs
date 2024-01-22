@@ -230,7 +230,8 @@ impl Miner {
 				&reveal_script,
 			)?;
 
-			reveal_psbt.extract_tx_unchecked_fee_rate()
+			// Remove this clone if not needed in the future.
+			reveal_psbt.clone().extract_tx_unchecked_fee_rate()
 		};
 		let reveal_txid = reveal_tx.txid();
 		let reveal_tx_hex = encode::serialize_hex(&reveal_tx);
@@ -239,8 +240,14 @@ impl Miner {
 		tracing::debug!("{reveal_tx:#?}");
 		tracing::info!("{reveal_tx_hex}");
 
-		// TODO?: Handle result.
-		self.api.broadcast(reveal_tx_hex).await?;
+		if let Err(e) = self.api.broadcast(&reveal_tx_hex).await {
+			tracing::error!("failed to broadcast reveal transaction due to {e}");
+
+			util::cache(
+				reveal_txid.to_string(),
+				format!("{reveal_tx_hex}\n{reveal_psbt:?}\n{reveal_tx:?}"),
+			)?;
+		}
 
 		Ok(())
 	}

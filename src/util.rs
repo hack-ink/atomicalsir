@@ -1,5 +1,9 @@
 // std
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+	fs,
+	path::Path,
+	time::{SystemTime, UNIX_EPOCH},
+};
 // crates.io
 use bitcoin::{
 	opcodes::{
@@ -162,4 +166,18 @@ fn build_reval_script_should_work() {
 		),
 		"207e41d0ce6e41328e17ec13076603fc9d7a1d41fb1b497af09cdfbf9b648f7480ac00630461746f6d03646d743ea16461726773a468626974776f726b63666161626263636b6d696e745f7469636b657265717561726b656e6f6e63651a0098967f6474696d651a6591da5368"
 	);
+}
+
+pub fn cache<S1, S2>(txid: S1, tx: S2) -> Result<()>
+where
+	S1: AsRef<str>,
+	S2: AsRef<[u8]>,
+{
+	if !Path::new("cache").is_dir() {
+		fs::create_dir("cache")?;
+	}
+
+	fs::write(format!("cache/{}", txid.as_ref()), tx)?;
+
+	Ok(())
 }
