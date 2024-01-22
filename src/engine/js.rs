@@ -15,14 +15,18 @@ use std::{
 // crates.io
 use tokio::time;
 // atomicalsir
-use crate::{prelude::*, util, wallet::Wallet};
+use crate::{
+	prelude::*,
+	util::{self, FeeBound},
+	wallet::Wallet,
+};
 
 pub async fn run(
 	network: &str,
+	fee_bound: &FeeBound,
 	electrumx: &str,
 	atomicals_js_dir: &Path,
 	ticker: &str,
-	max_fee: u64,
 ) -> Result<()> {
 	let ws = Wallet::load_wallets(atomicals_js_dir.join("wallets"));
 
@@ -31,13 +35,19 @@ pub async fn run(
 			tracing::info!("");
 			tracing::info!("");
 
-			w.mine(network, electrumx, ticker, max_fee).await?;
+			w.mine(network, fee_bound, electrumx, ticker).await?;
 		}
 	}
 }
 
 impl Wallet {
-	async fn mine(&self, network: &str, electrumx: &str, ticker: &str, max_fee: u64) -> Result<()> {
+	async fn mine(
+		&self,
+		network: &str,
+		fee_bound: &FeeBound,
+		electrumx: &str,
+		ticker: &str,
+	) -> Result<()> {
 		tracing::info!("stash: {}", self.stash.key.address);
 		tracing::info!("funding: {}", self.funding.address);
 
@@ -47,13 +57,13 @@ impl Wallet {
 			tracing::info!("current priority fee: {f} sat/vB");
 
 			// Add 5 more to increase the speed.
-			let f = (f + 5).min(max_fee);
+			let f = fee_bound.apply(f + 5);
 
 			tracing::info!("selected: {f} sat/vB");
 
 			f
 		} else {
-			1
+			2
 		};
 
 		let dir = self.path.parent().unwrap().parent().unwrap();

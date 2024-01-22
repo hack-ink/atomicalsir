@@ -15,6 +15,26 @@ use serde::{Deserialize, Serialize};
 // atomicalsir
 use crate::prelude::*;
 
+#[derive(Clone, Debug)]
+pub struct FeeBound {
+	pub min: u64,
+	pub max: u64,
+}
+impl FeeBound {
+	pub fn from_str(s: &str) -> Result<Self> {
+		let mut s_ = s.split(',');
+
+		let min = s_.next().ok_or(anyhow::anyhow!("expected <MIN>,<MAX> found {s}"))?.parse()?;
+		let max = s_.next().ok_or(anyhow::anyhow!("expected <MIN>,<MAX> found {s}"))?.parse()?;
+
+		Ok(Self { min, max })
+	}
+
+	pub fn apply(&self, value: u64) -> u64 {
+		value.min(self.max).max(self.min)
+	}
+}
+
 pub async fn query_fee() -> Result<u64> {
 	#[derive(Debug, Deserialize)]
 	#[serde(rename_all = "camelCase")]

@@ -25,18 +25,22 @@ use bitcoin::{
 };
 use serde::Serialize;
 // atomicalsir
-use crate::{prelude::*, util, wallet::Wallet as RawWallet};
+use crate::{
+	prelude::*,
+	util::{self, FeeBound},
+	wallet::Wallet as RawWallet,
+};
 use atomicals_electrumx::{r#type::Utxo, Api, ElectrumX, ElectrumXBuilder};
 
 pub async fn run(
 	thread: u16,
 	network: Network,
+	fee_bound: &FeeBound,
 	electrumx: &str,
 	wallet_dir: &Path,
 	ticker: &str,
-	max_fee: u64,
 ) -> Result<()> {
-	let m = MinerBuilder { thread, network, electrumx, wallet_dir, ticker, max_fee }.build()?;
+	let m = MinerBuilder { thread, network, fee_bound, electrumx, wallet_dir, ticker }.build()?;
 
 	#[allow(clippy::never_loop)]
 	loop {
@@ -53,10 +57,10 @@ pub async fn run(
 struct Miner {
 	thread: u16,
 	network: Network,
+	fee_bound: FeeBound,
 	api: ElectrumX,
 	wallets: Vec<Wallet>,
 	ticker: String,
-	max_fee: u64,
 }
 impl Miner {
 	const BASE_BYTES: f64 = 10.5;
@@ -423,7 +427,7 @@ impl Miner {
 
 		let secp = Secp256k1::new();
 		let satsbyte = if self.network == Network::Bitcoin {
-			(util::query_fee().await? + 5).min(self.max_fee)
+			self.fee_bound.apply(util::query_fee().await? + 5)
 		} else {
 			2
 		};
@@ -548,10 +552,10 @@ impl Miner {
 struct MinerBuilder<'a> {
 	thread: u16,
 	network: Network,
+	fee_bound: &'a FeeBound,
 	electrumx: &'a str,
 	wallet_dir: &'a Path,
 	ticker: &'a str,
-	max_fee: u64,
 }
 impl<'a> MinerBuilder<'a> {
 	fn build(self) -> Result<Miner> {
@@ -565,10 +569,10 @@ impl<'a> MinerBuilder<'a> {
 		Ok(Miner {
 			thread: self.thread,
 			network: self.network,
+			fee_bound: self.fee_bound.to_owned(),
 			api,
 			wallets,
 			ticker: self.ticker.into(),
-			max_fee: self.max_fee,
 		})
 	}
 }
