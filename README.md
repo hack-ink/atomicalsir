@@ -47,9 +47,6 @@ Options:
       --electrumx <URI>
           Specify the URI of the electrumx.
 
-          Example:
-          - https://ep.atomicals.xyz/proxy
-
           [default: https://ep.atomicals.xyz/proxy]
 
       --ticker <NAME>

@@ -49,9 +49,6 @@ pub struct Cli {
 	#[arg(long, value_name = "MIN,MAX", value_parser = FeeBound::from_str)]
 	fee_bound: FeeBound,
 	/// Specify the URI of the electrumx.
-	///
-	/// Example:
-	/// - https://ep.atomicals.xyz/proxy
 	#[arg(
 		verbatim_doc_comment,
 		long,
