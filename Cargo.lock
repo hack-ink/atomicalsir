@@ -88,7 +88,7 @@ checksum = "6f840fb7195bcfc5e17ea40c26e5ce6d5b9ce5d584466e17703209657e459ae0"
 
 [[package]]
 name = "atomicals-electrumx"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "array-bytes",
  "bitcoin",
@@ -104,7 +104,7 @@ dependencies = [
 
 [[package]]
 name = "atomicalsir"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "array-bytes",
