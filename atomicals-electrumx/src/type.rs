@@ -1,25 +1,9 @@
+#![allow(missing_docs)]
+
 // std
 use std::collections::HashMap;
 // crates.io
-use serde::{Deserialize, Serialize};
-
-// TODO: We can remove the unused parts as much as possible.
-
-#[derive(Debug, Serialize)]
-pub struct Params<P>
-where
-	P: Serialize,
-{
-	pub params: P,
-}
-impl<P> Params<P>
-where
-	P: Serialize,
-{
-	pub fn new(params: P) -> Self {
-		Self { params }
-	}
-}
+use serde::Deserialize;
 
 // TODO: Handle errors.
 #[derive(Debug, Deserialize)]

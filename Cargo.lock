@@ -87,11 +87,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6f840fb7195bcfc5e17ea40c26e5ce6d5b9ce5d584466e17703209657e459ae0"
 
 [[package]]
+name = "atomicals-electrumx"
+version = "0.1.9"
+dependencies = [
+ "anyhow",
+ "array-bytes",
+ "bitcoin",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "atomicalsir"
 version = "0.1.9"
 dependencies = [
  "anyhow",
  "array-bytes",
+ "atomicals-electrumx",
  "bitcoin",
  "ciborium",
  "clap",
@@ -101,7 +118,6 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "sha2",
  "tokio",
  "tracing",
  "tracing-subscriber",

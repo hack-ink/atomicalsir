@@ -5,7 +5,6 @@
 mod cli;
 use cli::Cli;
 
-mod electrumx;
 mod engine;
 mod util;
 mod wallet;

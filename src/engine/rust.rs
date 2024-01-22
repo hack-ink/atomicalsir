@@ -25,12 +25,8 @@ use bitcoin::{
 };
 use serde::Serialize;
 // atomicalsir
-use crate::{
-	electrumx::{r#type::Utxo, Api, ElectrumX, ElectrumXBuilder},
-	prelude::*,
-	util,
-	wallet::Wallet as RawWallet,
-};
+use crate::{prelude::*, util, wallet::Wallet as RawWallet};
+use atomicals_electrumx::{r#type::Utxo, Api, ElectrumX, ElectrumXBuilder};
 
 pub async fn run(
 	thread: u16,

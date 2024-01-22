@@ -2,7 +2,7 @@
 use std::future::Future;
 // crates.io
 use tokio::runtime::Runtime;
-// atomicalsir
+// atomicals-electrumx
 use super::*;
 
 fn test<F, Fut>(f: F)
