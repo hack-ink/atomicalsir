@@ -11,6 +11,37 @@
 
 </div>
 
+When creating and open-sourcing this project, I hoped to support those who love the Atomicals protocol and promote community development.
+
+Thanks to the language features of Rust, before GPU mining algorithms were introduced, atomicalsir's hash computation speed surpassed all other tools. We are glad that I could help those in need and received some Stars.
+
+However, during a piece of test code, a BTC mainnet private key was inadvertently used, leading to an incorrect transfer of some $QUARK worth about $10,000 into what should have been only for testing purposes. Although the amount is not large, the act of someone reading the code and then secretly transferring assets is utterly intolerable. Considering that this project mainly circulates among Chinese-speaking communities, it's even more disgusting to think that the thief might also be Chinese.
+
+This project is entirely non-profit and born out of a love for open source and technology.
+
+Stolen address: `bc1p2y56txyct5xfws8la3cdng802p96trmx6rj07pc094avxllmuryql08fgv`
+
+The above is merely personal reflection. The fundamental reason is my own mistake, but I am deeply disappointed with this atmosphere.
+
+Lastly, if a technology can't protect the bad guys, then it can't protect the good guys either. ;）
+
+在创建并开源这个项目时，我希望能助力热爱 Atomicals 协议的人士，并促进社区发展。
+
+得益于 Rust 的语言特性，在 GPU 挖矿算法面世前，atomicalsir 的哈希运算速度超过了所有其他工具。
+
+很高兴我能够帮到需要的人，并收获了一些 Stars。
+
+但是，在一段测试代码中不慎使用了 BTC 主网私钥，本应仅用于测试的私钥错误地转入了一些 $QUARK，价值约 $10,000。虽然金额不大，但有人阅读代码后偷偷转移资产的行为实在让人无法容忍。考虑到本项目主要流传于中文圈子，想到盗窃者可能也是中国人就更加令人反感。
+
+本项目完全非盈利，出于对开源和技术的热爱而生。
+
+被盗地址：`bc1p2y56txyct5xfws8la3cdng802p96trmx6rj07pc094avxllmuryql08fgv`
+
+以上仅为个人感想，其根本原因为个人失误，但对这种氛围深感失望。
+
+最后，如果一项技术保护不了坏人那么也保护不了好人。;）
+
+
 ## Usage
 ```
 Atomicals mining manager.

@@ -10,7 +10,8 @@ where
 	F: FnOnce(ElectrumX) -> Fut,
 	Fut: Future<Output = ()>,
 {
-	let _ = tracing_subscriber::fmt::try_init();
+	tracing_subscriber::fmt::init();
+
 	let e = ElectrumXBuilder::testnet().build().unwrap();
 
 	Runtime::new().unwrap().block_on(f(e));
@@ -19,14 +20,14 @@ where
 #[test]
 fn get_by_ticker_should_work() {
 	test(|e| async move {
-		e.get_by_ticker("quark").await.unwrap();
+		e.get_by_ticker("atomicalsir").await.unwrap();
 	});
 }
 
 #[test]
 fn get_ft_info_should_work() {
 	test(|e| async move {
-		e.get_ft_info(e.get_by_ticker("quark").await.unwrap().atomical_id).await.unwrap();
+		e.get_ft_info(e.get_by_ticker("atomicalsir").await.unwrap().atomical_id).await.unwrap();
 	});
 }
 
