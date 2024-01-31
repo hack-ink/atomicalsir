@@ -11,6 +11,21 @@
 
 </div>
 
+When creating and open-sourcing this project, I hoped to support those who love the Atomicals protocol and promote community development.
+
+Thanks to the language features of Rust, before GPU mining algorithms were introduced, atomicalsir's hash computation speed surpassed all other tools. We are glad that I could help those in need and received some Stars.
+
+However, during a piece of test code, a BTC mainnet private key was inadvertently used, leading to an incorrect transfer of some $QUARK worth about $10,000 into what should have been only for testing purposes. Although the amount is not large, the act of reading the code and then secretly transferring assets is utterly intolerable.
+
+This project is entirely non-profit and born out of a love for open source and technology.
+
+Stolen address: `bc1p2y56txyct5xfws8la3cdng802p96trmx6rj07pc094avxllmuryql08fgv`
+
+The above is merely personal reflection. The fundamental reason is my own mistake, but I am deeply disappointed with this atmosphere.
+
+Lastly, if a technology can't protect the bad guys, then it can't protect the good guys either. ;）
+
+
 ## Usage
 ```
 Atomicals mining manager.
