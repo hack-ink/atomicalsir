@@ -33,7 +33,7 @@ jobs:
           mv target/${{ matrix.target.name }}/ci-release/atomicalsir${{ matrix.target.extension }} .
           zstd --ultra -22 -o atomicalsir-${{ matrix.target.name }}.zst atomicalsir${{ matrix.target.extension }}
       - name: Upload artifact
-        uses: actions/upload-artifact@v4.3.0
+        uses: actions/upload-artifact@v4.3.1
         with:
           name: atomicalsir-${{ matrix.target.name }}
           path: atomicalsir-${{ matrix.target.name }}.zst
