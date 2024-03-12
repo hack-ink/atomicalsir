@@ -58,7 +58,7 @@ jobs:
           mv ../SHA256 .
           mv ../MD5 .
       - name: Publish
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           discussion_category_name: Announcements
           generate_release_notes: true
