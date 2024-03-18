@@ -28,7 +28,7 @@ anyhow              = { version = "1.0" }
 atomicals-electrumx = { version = "0.2.0", path = "atomicals-electrumx" }
 bitcoin             = { version = "0.31", features = ["rand-std"] }
 ciborium            = { version = "0.2" }
-clap                = { version = "4.4", features = ["color", "derive"] }
+clap                = { version = "4.5", features = ["color", "derive"] }
 color-eyre          = { version = "0.6" }
 num_cpus            = { version = "1.16" }
 rand                = { version = "0.8" }
